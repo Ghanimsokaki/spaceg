@@ -1,0 +1,17 @@
+{
+  "name": "stellar-drive-works",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interstellar space-flight and starship-company simulator (Orion, Daedalus, AMED, Black Hole Drive and more)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch"
+  },
+  "dependencies": {
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.20.2"
+  }
+}
