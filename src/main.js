@@ -106,7 +106,7 @@ let G_ = null; // game state
 function freshGame(name, sandbox = false) {
   return {
     company: name || 'Stellar Drive Works', credits: sandbox ? 1e12 : START_CREDITS, rep: sandbox ? 999 : 0, t: 0, sandbox,
-    unlocked: sandbox ? Object.keys(ENGINES) : ['chem'], fleet: [], activeId: null, done: {}, records: { maxBeta: 0 }, kills: 0, killsBase: 0,
+    unlocked: Object.keys(ENGINES), fleet: [], activeId: null, done: {}, records: { maxBeta: 0 }, kills: 0, killsBase: 0,
     settings: { relOptics: true, bloom: true, invincible: false, infiniteFuel: false },
   };
 }
@@ -449,17 +449,21 @@ function stepShip(ship, dt, realDtPart) {
       }
       env.nearestMassive = dep;
       if (central) {
+        // guidance works in the central body's frame: remove its pull and the frame's own acceleration
         const cs = states.find(s => s.b === central);
         env.gNonCentral = PH.sub(g, cs ? PH.gravityAt(ship.p, [cs]) : [0, 0, 0]);
+        if (cs && central.type !== 'star') env.gNonCentral = PH.sub(env.gNonCentral, PH.gravityAt(cs.p, states, central));
       } else if (tState) {
         env.gNonCentral = PH.sub(g, PH.gravityAt(tState.p, states, tb));
+        // inside the target's SOI its pull is part of the plan (free fall), not something to fight
+        if (tb.mass && PH.len(PH.sub(ship.p, tState.p)) < PH.hillRadius(tb) * 0.5) env.gNonCentral = PH.sub(env.gNonCentral, PH.gravityAt(ship.p, [tState]));
       } else env.gNonCentral = g;
       if (dep) env.gNonCentral = PH.sub(env.gNonCentral, dep.g);
     }
     // collision avoidance: push away from any non-target body we are on course to hit
     const vS = PH.velOfU(ship.u);
     for (const s of states) {
-      if (!s.b.radius || s.b.type === 'station' || s.b === tb) continue;
+      if (!s.b.radius || s.b.type === 'station') continue;
       const rel = PH.sub(ship.p, s.p); const d = PH.len(rel);
       const R = s.b.radius * (s.b.type === 'blackhole' ? 6 : 1.15);
       if (d > R * 12) continue;
@@ -470,7 +474,7 @@ function stepShip(ship, dt, realDtPart) {
       const vl = PH.len(vr) || 1;
       const bImp = PH.len(PH.cross(rel, vr)) / vl;
       const tti = (d - R) / closing;
-      if (bImp < R * 1.4 && tti < 2 * DAY) {
+      if (bImp < R * (s.b === tb ? 1.15 : 1.4) && tti < 2 * DAY) {
         const tang = PH.sub(PH.mul(vr, 1 / vl), PH.mul(rh, -closing / vl));
         const tl = PH.len(tang);
         const side = tl > 1e-6 ? PH.mul(tang, 1 / tl) : rh;
@@ -693,7 +697,7 @@ const ui = new UI({
     const s = sandbox ? PH.newShip('amed', 'probe', 'Sandbox AMED', ['laser', 'missiles', 'solar', 'hab', 'cmd']) : PH.newShip('chem', 'probe', 'Kestrel I', ['science']);
     G_.fleet.push(s); G_.activeId = s.id; placeAtShipyard(s); combat.clear(); save(); return G_;
   },
-  loadGame: async (mode = 'career') => { G_ = await load(mode); combat.clear(); if (G_) { G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
+  loadGame: async (mode = 'career') => { G_ = await load(mode); combat.clear(); if (G_) { G_.unlocked = Object.keys(ENGINES); G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
   hasSave: async (mode = 'career') => !!(await load(mode)),
   deleteSave: () => storage.del(keyOf(G_)),
   get saveInfo() { return { backend: storage.backend, lastSaved }; },

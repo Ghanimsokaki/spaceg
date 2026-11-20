@@ -337,3 +337,12 @@ export const WEAPONS = {
   railgun: { name: 'Railgun', energy: 120, damage: 70, range: 1.0e5, cooldown: 1.6, speed: 3.0e4, color: '#9fe6ff' },
   missile: { name: 'Missile', energy: 0, damage: 120, range: 5.0e5, cooldown: 1.0, ammo: 8, accel: 600, color: '#ffb347' },
 };
+
+// Everything is free: every drive is unlocked from the start and nothing costs money.
+// (Contracts still pay out, so credits work as a score.)
+export const FREE_PLAY = true;
+if (FREE_PLAY) {
+  for (const E of Object.values(ENGINES)) { E.cost = 0; E.research = 0; E.rep = 0; E.fuelPrice = 0; if (E.fuel2Price) E.fuel2Price = 0; }
+  for (const P of Object.values(PARTS)) P.cost = 0;
+  for (const K of Object.values(CONFIGS)) K.cost = 0;
+}

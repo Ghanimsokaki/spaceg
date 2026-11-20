@@ -56,6 +56,7 @@ export class UI {
     if (Math.abs(b) >= 1) return '$' + b.toFixed(2) + 'B';
     return '$' + (b * 1000).toFixed(0) + 'M';
   }
+  static fmtCost(b) { return b <= 1e-9 ? 'Free' : UI.fmtMoney(b); }
   static fmtDate(t) {
     const ms = Date.UTC(START_YEAR, 0, 1) + t * 1000;
     if (Math.abs(ms) > 8e15) return 'Year ' + Math.floor(START_YEAR + t / YEAR);
@@ -168,7 +169,7 @@ export class UI {
       this.toast('Sandbox: unlimited money, every drive and part unlocked. Press J to launch target drones, hold F to fire. Open HQ → Sandbox to teleport anywhere.', 'good');
       const s = this.api.activeShip(); if (s) s.ap.target = 'sol:Moon';
     } else if (isNew) {
-      this.toast(`Welcome, CEO. ${this.api.game.company} owns one chemical rocket and $${this.api.game.credits}B. Take the Lunar Survey to start earning.`, 'good');
+      this.toast(`Welcome, CEO. Every drive and part is free and unlocked. Build anything in HQ, Shipyard tab. Contracts pay credits as your score.`, 'good');
       setTimeout(() => this.toggleHelp(true), 600);
       const s = this.api.activeShip(); if (s) s.ap.target = 'sol:Moon';
     }
@@ -700,8 +701,8 @@ export class UI {
         </div>
         <div class="acts">
           <button class="btn" data-act="fly" data-id="${s.id}">${act ? 'Launch' : 'Take helm'}</button>
-          ${docked ? `<button class="btn amber" data-act="refit" data-id="${s.id}" ${cost < 1e-4 || g.credits < cost ? 'disabled' : ''}>Refuel · ${UI.fmtMoney(cost)}</button><button class="btn ghost" data-act="redesign" data-id="${s.id}">Refit modules</button>` : ''}
-          ${!docked && inSol ? `<button class="btn ghost" data-act="tow" data-id="${s.id}" ${g.credits < 0.2 ? 'disabled' : ''}>Tug home · $200M</button>` : ''}
+          ${docked ? `<button class="btn amber" data-act="refit" data-id="${s.id}" ${g.credits < cost ? 'disabled' : ''}>Refuel · ${UI.fmtCost(cost)}</button><button class="btn ghost" data-act="redesign" data-id="${s.id}">Refit modules</button>` : ''}
+          ${!docked && inSol ? `<button class="btn ghost" data-act="tow" data-id="${s.id}">Tug home · Free</button>` : ''}
           <button class="btn ghost" data-act="scrap" data-id="${s.id}">${this._confirm === 'scrap' + s.id ? 'Confirm scrap' : 'Scrap'}</button>
         </div></div>`;
     }
@@ -727,7 +728,7 @@ export class UI {
       h += `<span class="lbl">1 · Drive section</span><div class="enginelist" style="margin-top:6px">`;
       for (const k of ENGINE_ORDER) {
         const e = ENGINES[k], un = g.unlocked.includes(k);
-        h += `<button class="eng ${k === sel.engine ? 'sel' : ''} ${un ? '' : 'locked'}" data-eng="${k}"><b style="color:${un ? e.color : 'inherit'}">${esc(e.name)}</b><span>${un ? UI.fmtMoney(e.cost) : '🔒 research ' + UI.fmtMoney(e.research)}</span></button>`;
+        h += `<button class="eng ${k === sel.engine ? 'sel' : ''} ${un ? '' : 'locked'}" data-eng="${k}"><b style="color:${un ? e.color : 'inherit'}">${esc(e.name)}</b><span>${un ? UI.fmtCost(e.cost) : 'research ' + UI.fmtCost(e.research)}</span></button>`;
       }
       h += `</div>`;
       h += `<p class="blurb">${esc(E.blurb)}</p>`;
@@ -749,7 +750,7 @@ export class UI {
       const p = PARTS[k];
       const ok = (!p.needs || E.configs.includes(p.needs)) && sel.parts.length < MAX_PARTS;
       const cost = p.tank ? E.cost * 0.06 : p.cost;
-      h += `<button class="part" data-add="${k}" ${ok ? '' : 'disabled'} title="${esc(p.desc)}"><b>+ ${esc(p.name)}</b><span>${UI.fmtMoney(cost)} · ${p.tank ? '+25% prop' : UI.fmtMass(p.mass)}</span><small>${esc(p.needs && !E.configs.includes(p.needs) ? 'Not available on this drive' : p.desc)}</small></button>`;
+      h += `<button class="part" data-add="${k}" ${ok ? '' : 'disabled'} title="${esc(p.desc)}"><b>+ ${esc(p.name)}</b><span>${UI.fmtCost(cost)} · ${p.tank ? '+25% prop' : UI.fmtMass(p.mass)}</span><small>${esc(p.needs && !E.configs.includes(p.needs) ? 'Not available on this drive' : p.desc)}</small></button>`;
     }
     h += `</div>`;
     if (problems.length) h += `<div class="problems">${problems.map(p => `<p>⚠ ${esc(p)}</p>`).join('')}</div>`;
@@ -768,16 +769,16 @@ export class UI {
       <tr><td>Top speed</td><td>${vmax}</td></tr>
       <tr><td>Dust-shield rating</td><td>${sp.rated >= 0.01 ? sp.rated.toFixed(3) + 'c' : UI.fmtSpeed(sp.rated * C)}</td></tr>
       <tr><td>Propellant</td><td>${esc(E.fuelName)}${E.fuel2Name ? ' + ' + esc(E.fuel2Name) : ''}</td></tr>
-      <tr><td><b>${refit ? 'Refit cost' : 'Build cost'}</b></td><td><b>${UI.fmtMoney(refit ? this._refitPrice(refit, sp) : st.cost)}</b></td></tr>
+      <tr><td><b>${refit ? 'Refit cost' : 'Build cost'}</b></td><td><b>${UI.fmtCost(refit ? this._refitPrice(refit, sp) : st.cost)}</b></td></tr>
     </tbody></table>`;
     if (refit) {
       const price = this._refitPrice(refit, sp);
-      h += `<button class="btn" data-act="applyrefit" ${problems.length || g.credits < price ? 'disabled' : ''}>Apply refit · ${UI.fmtMoney(price)}</button>`;
+      h += `<button class="btn" data-act="applyrefit" ${problems.length || g.credits < price ? 'disabled' : ''}>Apply refit · ${UI.fmtCost(price)}</button>`;
     } else {
       const n = g.fleet.filter(s => s.engine === sel.engine).length + 1;
       const defName = `${E.short.charAt(0) + E.short.slice(1).toLowerCase()} ${['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][n - 1] || n}`;
       h += `<label class="field"><span class="lbl">Ship name</span><input id="shipName" value="${esc(sel.name || defName)}" maxlength="28"></label>
-        <button class="btn" data-act="build" ${g.credits < st.cost || !g.unlocked.includes(sel.engine) || problems.length ? 'disabled' : ''}>Commission · ${UI.fmtMoney(st.cost)}</button>
+        <button class="btn" data-act="build" ${g.credits < st.cost || !g.unlocked.includes(sel.engine) || problems.length ? 'disabled' : ''}>Commission · ${UI.fmtCost(st.cost)}</button>
         ${g.credits < st.cost ? `<span class="tag am" style="margin-left:8px">Need ${UI.fmtMoney(st.cost - g.credits)} more</span>` : ''}`;
       this._defName = defName;
     }
@@ -790,7 +791,7 @@ export class UI {
     const partCost = (sp) => sp.cost - E.cost;
     const add = Math.max(0, partCost(newSpec) - partCost(old));
     const refund = Math.max(0, partCost(old) - partCost(newSpec)) * 0.3;
-    return Math.max(0, add * 1.1 - refund + 0.05);
+    return Math.max(0, add * 1.1 - refund);
   }
 
   _rdHTML() {
@@ -893,7 +894,7 @@ export class UI {
         this.api.refill(ship);
         this.toast(`${ship.name} refuelled, rearmed and repaired`, 'good'); break;
       }
-      case 'tow': g.credits -= 0.2; this.api.placeAtShipyard(ship); this.toast(`${ship.name} towed to the shipyard`); break;
+      case 'tow': this.api.placeAtShipyard(ship); this.toast(`${ship.name} towed to the shipyard`); break;
       case 'scrap': {
         if (this._confirm !== 'scrap' + ship.id) { this._confirm = 'scrap' + ship.id; break; }
         this._confirm = null;

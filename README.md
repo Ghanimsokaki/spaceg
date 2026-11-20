@@ -2,6 +2,8 @@
 
 An interstellar flight and starship-company simulator that runs in the browser. Found a company in 2150, research ten propulsion systems, build ships in your orbital shipyard, take contracts, and fly them yourself across a relativistic galaxy — from the Moon to Sagittarius A*.
 
+Every drive and part is free and unlocked from the start; contracts still pay credits as a score.
+
 **Play:** open `index.html` in any modern desktop browser (Chrome, Edge, Firefox, Safari). It is a single self-contained file; no server or internet connection is needed.
 
 ## Propulsion systems

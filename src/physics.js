@@ -371,6 +371,33 @@ export function engineOutput(ship, dtau, beta, vhat, fwd) {
 
 // ── autopilot ────────────────────────────────────────────────────────────────
 // Modes: off | prograde | retrograde | target | approach | flyby | warp
+// Transfer from somewhere inside a body's SOI down to a parking orbit around it
+function planInside(ship, target, t, dvAvail) {
+  const mu = G * target.mass;
+  const ts = bodyState(target, t);
+  const r1 = sub(ship.p, ts.p), v0 = sub(velOfU(ship.u), ts.v);
+  const R1 = len(r1), Ra = targetArrivalRadius(target) * 0.85;
+  const tH = Math.PI * Math.sqrt(Math.pow((R1 + Ra) / 2, 3) / mu);
+  const up = [0, 1, 0];
+  const acc = rocketParams(ship).F / shipMass(ship);
+  let best = null;
+  for (const deg of [140, 160, 175, 190, 205, 220]) {
+    const r2 = mul(rotateAbout(norm(r1), up, deg * Math.PI / 180), Ra);
+    for (let i = 0; i <= 18; i++) {
+      const T = tH * Math.pow(10, -0.5 + 0.8 * i / 18);
+      const sol = lambert(r1, r2, T, mu);
+      if (!sol) continue;
+      const vc = mul(norm(cross(up, r2)), Math.sqrt(mu / Ra));
+      const dv1 = len(sub(sol.v1, v0)), dv2 = len(sub(sol.v2, vc));
+      if (dv1 / acc > 0.3 * T) continue;
+      const dv = dv1 + dv2;
+      if (!best || dv < best.dv) best = { T, dv, r2 };
+    }
+  }
+  if (!best) return null;
+  return { kind: 'lambert', tDep: t, tArr: t + best.T, T: best.T, dv: best.dv, centralId: target.id, legTarget: null, arrRel: best.r2, short: best.dv > dvAvail };
+}
+
 export function planTransfer(ship, target, t, states) {
   // choose central body for Lambert: target's parent if target is moon/station, else star
   const sys = SYS_BY_ID[ship.sys];
@@ -379,8 +406,14 @@ export function planTransfer(ship, target, t, states) {
   const dvAvail = deltaVofRapidity(phi);
   const rel = relToBody(ship, target, t);
   const dist = len(rel.r);
-  if (target.type === 'station' || dist < 2e8 && target.type !== 'moon') return { kind: 'direct' };
+  if (target.type === 'station') return { kind: 'direct' };
   if (dvAvail > 4e5 || ENGINES[ship.engine].ram) return { kind: 'direct' };
+  // already inside the target's sphere of influence (e.g. Moon → Earth): transfer around the target itself
+  if (target.mass && target.type !== 'star' && target.type !== 'blackhole' && dist < hillRadius(target) * 0.9) {
+    if (dist < targetArrivalRadius(target) * 3) return { kind: 'direct' };
+    return planInside(ship, target, t, dvAvail) || { kind: 'direct' };
+  }
+  if (dist < 2e8 && target.type !== 'moon') return { kind: 'direct' };
 
   let central = target.parent ? sys.byName[target.parent] : sys.star;
   // if target is a moon and we're not inside its parent's sphere of influence, go to the parent first
@@ -547,15 +580,23 @@ export function autopilot(ship, t, states, dt, env) {
       ap.phaseLabel = 'WINDOW IN ' + Math.ceil((ap.plan.tDep - t) / 86400) + ' D';
       res.thr = 0; res.dir = sp > 1 ? norm(v) : null; return res;
     }
+    // parking-orbit transfers: coast the last stretch to periapsis, where the
+    // arrival check performs a single orbit-insertion burn (no hovering in the well)
+    if (ap.plan && ap.plan.arrRel && t >= ap.plan.tArr - 0.04 * ap.plan.T && t < ap.plan.tArr + 0.5 * ap.plan.T) {
+      ap.phaseLabel = 'COASTING TO PERIAPSIS';
+      res.thr = 0; res.dir = len(u) > 1 ? norm(mul(u, -1)) : null; return res;
+    }
     if (ap.plan && ap.plan.kind === 'lambert' && t < ap.plan.tArr - 0.04 * ap.plan.T) {
-      const leg = bodyById(ap.plan.legTarget);
+      const virt = !!ap.plan.arrRel;            // aiming at a parking-orbit point around the central body
+      const leg = virt ? target : bodyById(ap.plan.legTarget);
       const central = bodyById(ap.plan.centralId);
       const lr = relToBody(ship, leg, t);
-      const hill = Math.max(hillRadius(leg) * 0.5, leg.radius * 60);
+      const hill = virt ? 0 : Math.max(hillRadius(leg) * 0.5, leg.radius * 60);
       if (len(lr.r) > hill) {
         const cs = bodyState(central, t);
-        const tb = bodyState(leg, ap.plan.tArr), ct = bodyState(central, ap.plan.tArr);
-        const sol = lambert(sub(ship.p, cs.p), sub(tb.p, ct.p), ap.plan.tArr - t, G * central.mass);
+        const ct = bodyState(central, ap.plan.tArr);
+        const r2 = virt ? ap.plan.arrRel : sub(bodyState(leg, ap.plan.tArr).p, ct.p);
+        const sol = lambert(sub(ship.p, cs.p), r2, ap.plan.tArr - t, G * central.mass);
         if (sol) {
           let vreq = add(sol.v1, cs.v);
           // escaping a departure planet's well: time the burn in the parking orbit
@@ -571,7 +612,7 @@ export function autopilot(ship, t, states, dt, env) {
           usedLambert = true;
           ap.phaseLabel = ap.escaping ? 'ESCAPE BURN' : 'TRANSFER';
         }
-      } else if (leg !== target) {
+      } else if (!virt && leg !== target) {
         ap.plan = planTransfer(ship, target, t, states); // re-plan for the moon leg
       }
     }
@@ -586,9 +627,24 @@ export function autopilot(ship, t, states, dt, env) {
         cap = Math.min(cap, C * Math.tanh(Math.max(0, (phiLeft + phiNow) * 0.5)));
       }
       cap = Math.max(cap, 50);
-      const vd = desiredSpeed(ship, d, cap);
+      let vd = desiredSpeed(ship, d, cap);
+      // inside a planet's sphere of influence, let the ship fall: the speed gained
+      // from gravity is removed by one orbit-insertion burn instead of by hovering
+      if (target.mass && sameSys && target.type !== 'station' && dist < hillRadius(target) * 0.5) {
+        const soi = hillRadius(target) * 0.5;
+        const vf2 = 2 * G * target.mass * (1 / Math.max(dist, Ra * 0.9) - 1 / soi);
+        if (vf2 > 0) vd = Math.min(Math.sqrt(vd * vd + vf2 * 0.85), cap * 4 + Math.sqrt(vf2));
+      }
       vdNow = vd;
-      vdes = mul(rhat, vd);
+      // aim beside a planet (at the parking-orbit radius), never at its centre
+      let aimHat = rhat;
+      if (target.mass && sameSys && target.type !== 'station' && dist > Ra * 0.5) {
+        let perp = sub(u, mul(rhat, dot(u, rhat)));
+        if (len(perp) < 1) perp = cross(rhat, [0, 1, 0]);
+        if (len(perp) < 1e-6) perp = [1, 0, 0];
+        aimHat = norm(add(rel.r, mul(norm(perp), Ra * 0.8)));
+      }
+      vdes = mul(aimHat, vd);
       ap.phaseLabel = vd < len(u) * 0.98 ? 'BRAKING' : (vd >= cap * 0.99 ? 'CRUISE' : 'ACCELERATING');
       // inside a departure planet's well: climb out on a hyperbola toward the desired asymptote
       const dep = env.nearestMassive;
