@@ -82,6 +82,12 @@ export class UI {
     $('mapClose').onclick = () => this.toggleMap(false);
     $('mapSys').onclick = () => { this.mapMode = 'sys'; };
     $('mapGal').onclick = () => { this.mapMode = 'gal'; };
+    const fb = $('fireBtn');
+    const fireOn = (e) => { e.preventDefault(); this.api.setFire(true); fb.classList.add('on'); };
+    const fireOff = () => { this.api.setFire(false); fb.classList.remove('on'); };
+    fb.addEventListener('pointerdown', fireOn); fb.addEventListener('pointerup', fireOff); fb.addEventListener('pointerleave', fireOff);
+    $('lockBtn').onclick = () => this.api.cycleLock();
+    $('droneBtn').onclick = () => this.api.spawnDrones(3);
     $('lossBtn').onclick = () => { $('loss').hidden = true; this.toggleHQ(true); };
     document.querySelectorAll('[data-tgt]').forEach(b => b.onclick = () => this.cycleTarget(+b.dataset.tgt));
     document.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => { const s = this.api.activeShip(); if (s) this.api.setAP(s, b.dataset.ap); });
@@ -99,13 +105,20 @@ export class UI {
     $('contBtn').hidden = !this.api.hasSave();
     $('introEngines').innerHTML = ENGINE_ORDER.map(k => `<span class="tag ${k === 'amed' ? 'cy' : k === 'blackhole' ? 'vi' : ''}">${esc(ENGINES[k].name)}</span>`).join('');
     $('newBtn').onclick = () => { this.api.newGame($('coInput').value.trim()); this._startPlay(true); };
-    $('contBtn').onclick = () => { if (this.api.loadGame()) this._startPlay(false); };
+    $('contBtn').onclick = () => { if (this.api.loadGame('career')) this._startPlay(false); };
+    $('sandContBtn').hidden = !this.api.hasSave('sandbox');
+    $('sandBtn').onclick = () => { this.api.newGame(($('coInput').value.trim() || 'Stellar Drive Works') + ' Sandbox', true); this._startPlay(true); };
+    $('sandContBtn').onclick = () => { if (this.api.loadGame('sandbox')) this._startPlay(false); };
   }
   _startPlay(isNew) {
     $('intro').hidden = true;
     $('hud').hidden = false;
     this.sel.engine = 'chem'; this.sel.parts = ['science']; this.sel.refitId = null;
-    if (isNew) {
+    $('sandTab').hidden = !this.api.game.sandbox;
+    if (isNew && this.api.game.sandbox) {
+      this.toast('Sandbox: unlimited money, every drive and part unlocked. Press J to launch target drones, hold F to fire. Open HQ → Sandbox to teleport anywhere.', 'good');
+      const s = this.api.activeShip(); if (s) s.ap.target = 'sol:Moon';
+    } else if (isNew) {
       this.toast(`Welcome, CEO. ${this.api.game.company} owns one chemical rocket and $${this.api.game.credits}B. Take the Lunar Survey to start earning.`, 'good');
       setTimeout(() => this.toggleHelp(true), 600);
       const s = this.api.activeShip(); if (s) s.ap.target = 'sol:Moon';
@@ -191,7 +204,7 @@ export class UI {
     this.hudTimer = 0.1;
     const g = this.api.game, E = ENGINES[ship.engine];
     $('coName').textContent = g.company;
-    $('coCr').textContent = UI.fmtMoney(g.credits);
+    $('coCr').textContent = g.sandbox ? '∞ SANDBOX' : UI.fmtMoney(g.credits);
     $('coRep').textContent = 'REP ' + g.rep;
     const W = this.api.WARPS[this.api.warpIdx];
     $('wVal').textContent = (W >= 1e6 ? W.toExponential(0).replace('e+', 'e') : W.toLocaleString('en-US')) + '×';
@@ -275,6 +288,19 @@ export class UI {
     else if (ap.mode === 'flyby') info = 'Full burn toward target, no braking';
     if (E.flybyOnly && ap.mode === 'approach') info = 'Daedalus cannot brake — use Flyby (6)';
     $('apInfo').textContent = info;
+
+    // weapons panel
+    const wsp = PH.shipSpec(ship), cs = this.api.combat.status;
+    const showW = wsp.weapons.length > 0 || (cs && cs.drones > 0);
+    $('wpn').hidden = !showW;
+    if (showW && cs) {
+      $('wpnE').style.width = (cs.energy / cs.store * 100) + '%';
+      $('wpnET').textContent = Math.round(cs.energy) + ' MJ';
+      $('wpnPow').textContent = `Power ${cs.power.toFixed(1)} MW · ${cs.drones} drone${cs.drones === 1 ? '' : 's'} in range of sensors`;
+      $('wpnTgt').textContent = cs.target ? `drone ${cs.target.id} · ${UI.fmtDist(PH.len(cs.target.r))} · ${Math.max(0, cs.target.hp).toFixed(0)}%` : 'no target';
+      const names = { laser: 'Laser turrets', railgun: 'Railgun turrets', missile: 'Missile pod' };
+      $('wpnList').innerHTML = cs.weapons.length ? cs.weapons.map(w => `<div><span>${names[w.w]}${w.w === 'missile' ? ` · ${cs.missiles} left` : ''}</span><b class="${w.ready && w.inRange ? '' : 'no'}">${!w.ready ? (w.w === 'missile' && cs.missiles <= 0 ? 'EMPTY' : 'CHARGING') : w.inRange ? 'READY' : 'OUT OF RANGE'}</b></div>`).join('') : '<div><span>No weapons fitted. Add some in the Shipyard.</span></div>';
+    }
 
     // engine strip
     this._engineStrip(ship, E);
@@ -388,6 +414,23 @@ export class UI {
       put('sys:' + sd.sys.id, sd.sys.name, UI.fmtDist(sd.d), new THREE.Vector3(...sd.dir).multiplyScalar(1e9).add(camera.position), tgt ? 'tgt sys' : 'sys', tgt ? 3 : 1, tgt ? ship.ap.target : b.id);
     }
     for (const [k, el] of this.labelEls) if (!used.has(k)) el.hidden = true;
+
+    // target drones: red brackets with range and hull bar
+    const cb = this.api.combat;
+    const seen = new Set();
+    this.droneEls = this.droneEls || new Map();
+    for (const d of cb ? cb.drones : []) {
+      const s = proj(new THREE.Vector3(d.r[0], d.r[1], d.r[2]));
+      if (!s.inFront || s.x < 0 || s.x > W || s.y < 0 || s.y > H) continue;
+      let el = this.droneEls.get(d.id);
+      if (!el) { el = document.createElement('div'); el.className = 'dmark'; el.innerHTML = '<span></span><i></i>'; $('labels').appendChild(el); this.droneEls.set(d.id, el); }
+      el.classList.toggle('lock', d.id === cb.lockId);
+      el.style.left = s.x + 'px'; el.style.top = s.y + 'px';
+      el.firstChild.textContent = UI.fmtDist(PH.len(d.r));
+      el.lastChild.style.width = Math.max(0, d.hp) + '%';
+      el.hidden = false; seen.add(d.id);
+    }
+    for (const [id, el] of this.droneEls) { if (!seen.has(id)) { if (!cb.drones.some(d => d.id === id)) { el.remove(); this.droneEls.delete(id); } else el.hidden = true; } }
 
     // target marker / off-screen arrow
     const tm = $('tgtMarker'), ta = $('tgtArrow');
@@ -563,7 +606,9 @@ export class UI {
   renderHQ() {
     const g = this.api.game;
     $('hqName').textContent = g.company;
-    $('hqSub').textContent = `Headquarters · ${UI.fmtDate(g.t)} · ${UI.fmtMoney(g.credits)} · reputation ${g.rep}`;
+    $('hqSub').textContent = `Headquarters · ${UI.fmtDate(g.t)} · ${g.sandbox ? 'Sandbox · unlimited funds' : UI.fmtMoney(g.credits) + ' · reputation ' + g.rep}`;
+    $('sandTab').hidden = !g.sandbox;
+    if (this.tab === 'sandbox' && !g.sandbox) this.tab = 'fleet';
     document.querySelectorAll('#hqTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === this.tab));
     const body = $('hqBody');
     if (this.tab === 'fleet') body.innerHTML = this._fleetHTML();
@@ -571,6 +616,7 @@ export class UI {
     if (this.tab === 'rd') body.innerHTML = this._rdHTML();
     if (this.tab === 'contracts') body.innerHTML = this._contractsHTML();
     if (this.tab === 'settings') body.innerHTML = this._settingsHTML();
+    if (this.tab === 'sandbox') body.innerHTML = this._sandboxHTML();
     this.updateHQ();
   }
 
@@ -578,7 +624,7 @@ export class UI {
     const g = this.api.game;
     const done = Object.keys(g.done).length;
     let h = `<div class="stats">
-      <div class="stat"><span class="lbl">Treasury</span><div class="v am">${UI.fmtMoney(g.credits)}</div></div>
+      <div class="stat"><span class="lbl">Treasury</span><div class="v am">${g.sandbox ? '∞' : UI.fmtMoney(g.credits)}</div></div>
       <div class="stat"><span class="lbl">Fleet</span><div class="v">${g.fleet.length}</div></div>
       <div class="stat"><span class="lbl">Fastest</span><div class="v cy">${g.records.maxBeta < 0.001 ? (g.records.maxBeta * C / 1000).toFixed(1) + ' km/s' : g.records.maxBeta.toFixed(3) + 'c'}</div></div>
     </div>`;
@@ -722,6 +768,31 @@ export class UI {
     return h;
   }
 
+  _sandboxHTML() {
+    const g = this.api.game, s = this.api.activeShip();
+    const on = (v) => v ? 'On' : 'Off';
+    let h = `<p class="blurb" style="margin-top:0">Everything is unlocked and free. Build any design in the Shipyard, then use these tools on <b>${esc(s ? s.name : 'your active ship')}</b>.</p>`;
+    h += `<div class="sbgrid">
+      <h6>Ship</h6>
+      <button class="btn" data-act="sbrefill">Refuel · rearm · repair</button>
+      <button class="btn ${g.settings.invincible ? '' : 'ghost'}" data-act="sbgod">Invincible · ${on(g.settings.invincible)}</button>
+      <button class="btn ${g.settings.infiniteFuel ? '' : 'ghost'}" data-act="sbfuel">Infinite fuel · ${on(g.settings.infiniteFuel)}</button>
+      <h6>Weapons range</h6>
+      <button class="btn amber" data-act="sbdrones" data-n="3">Launch 3 drones</button>
+      <button class="btn amber" data-act="sbdrones" data-n="10">Launch 10 drones</button>
+      <h6>Clock</h6>
+      <button class="btn ghost" data-act="sbtime" data-dt="${DAY * 30}">+30 days</button>
+      <button class="btn ghost" data-act="sbtime" data-dt="${YEAR}">+1 year</button>
+    </div>`;
+    h += `<span class="lbl">Teleport into orbit</span>`;
+    for (const sys of SYSTEMS) {
+      h += `<div class="sbgrid"><h6>${esc(sys.name)} · ${UI.fmtDist(PH.len(sys.pos))} from Sol</h6>`;
+      for (const b of sys.bodies) h += `<button class="btn ghost" data-act="sbtele" data-id="${esc(b.id)}">${esc(b.name)}</button>`;
+      h += `</div>`;
+    }
+    return h;
+  }
+
   _settingsHTML() {
     const g = this.api.game;
     return `<label class="field"><span class="lbl">Company name</span><input id="coRename" value="${esc(g.company)}" maxlength="32"></label>
@@ -761,8 +832,8 @@ export class UI {
         const cost = this.refitCost(ship); if (g.credits < cost) return;
         g.credits -= cost;
         const E = ENGINES[ship.engine];
-        ship.fuel = PH.fuelCapacity(ship); ship.fuel2 = E.staged ? E.stage2.fuel : (E.fuel2 || 0); ship.stage = 1; ship.hull = 1; ship._hullWarned = false;
-        this.toast(`${ship.name} refuelled and repaired`, 'good'); break;
+        this.api.refill(ship);
+        this.toast(`${ship.name} refuelled, rearmed and repaired`, 'good'); break;
       }
       case 'tow': g.credits -= 0.2; this.api.placeAtShipyard(ship); this.toast(`${ship.name} towed to the shipyard`); break;
       case 'scrap': {
@@ -814,6 +885,12 @@ export class UI {
         this.sel.refitId = null; this.tab = 'fleet';
         this.toast(`${r.name} refitted: ${CONFIGS[r.config].name}`, 'good'); break;
       }
+      case 'sbtele': this.api.teleport(actEl.dataset.id); this.toggleHQ(false); return;
+      case 'sbrefill': { const s = this.api.activeShip(); if (s) { this.api.refill(s); this.toast(`${s.name} refuelled, rearmed and repaired`, 'good'); } break; }
+      case 'sbgod': g.settings.invincible = !g.settings.invincible; break;
+      case 'sbfuel': g.settings.infiniteFuel = !g.settings.infiniteFuel; break;
+      case 'sbdrones': this.toggleHQ(false); this.api.spawnDrones(+actEl.dataset.n); return;
+      case 'sbtime': g.t += +actEl.dataset.dt; this.toast('Clock advanced'); break;
       case 'optics': g.settings.relOptics = !g.settings.relOptics; break;
       case 'bloom': g.settings.bloom = !g.settings.bloom; this.api.setBloom(g.settings.bloom); break;
       case 'reset':

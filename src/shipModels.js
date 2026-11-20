@@ -233,6 +233,57 @@ function payloadModule(_config, z0, s, P) {
       const rm = radiatorMaterial(); P.radMats.push(rm);
       b.ring(1, 4, (cx, cy, a) => { const gg = new THREE.BoxGeometry(24 * s, 0.3 * s + 0.1, 16 * s); gg.translate(14.5 * s, 0, 0); gg.rotateZ(a + Math.PI / 4); gg.translate(0, 0, z + 9 * s); b.put(gg, rm); });
       z += 18 * s;
+    } else if (k === 'solar') {
+      b.cyl(2.2 * s, 2.2 * s, 8 * s, z + 4 * s, mat('darkMetal'));
+      for (const sd of [1, -1]) {
+        b.box(5 * s, 0.4 * s, 0.4 * s, sd * 4.6 * s, 0, z + 4 * s, mat('metal'));
+        for (let i = 0; i < 4; i++) b.box(7.4 * s, 0.12 * s + 0.03, 7 * s, sd * (10.5 + i * 7.8) * s, 0, z + 4 * s, mat('solar', [0.5, 0.6]));
+      }
+      z += 8 * s;
+    } else if (k === 'reactor') {
+      b.cyl(4.2 * s, 4.2 * s, 9 * s, z + 6.5 * s, mat('hullDark', [2, 1]));
+      b.torus(4.25 * s, 0.35 * s, z + 6.5 * s, mat('glowOrange'), { seg: 48, tseg: 6 });
+      b.lathe([[2.2, 0], [5.5, 1.6], [5.5, 2.2], [2.2, 2.4]].map(([r, zz]) => [r * s, zz * s]), mat('boron'), { z: z + 11 * s });
+      b.ring(4.2 * s, 6, (x, y, a) => b.box(0.3 * s, 3.5 * s, 7 * s, x * 1.35, y * 1.35, z + 6.5 * s, mat('darkMetal'), a + Math.PI / 2));
+      z += 14 * s;
+    } else if (k === 'capacitor') {
+      b.cyl(4.5 * s, 4.5 * s, 7 * s, z + 3.8 * s, mat('hull', [2, 1]), { seg: 6 });
+      for (const dz of [1.6, 3.8, 6]) b.torus(4.3 * s, 0.25 * s, z + dz * s, mat('glowCyan'), { seg: 6, tseg: 4 });
+      z += 8 * s;
+    } else if (k === 'laser' || k === 'railgun') {
+      const L = k === 'laser' ? 9 : 12;
+      b.cyl(3 * s, 3 * s, L * s, z + L / 2 * s, mat('hullDark', [2, 1]));
+      for (const sd of [1, -1]) {
+        b.cyl(1.2 * s, 1.6 * s, 1.2 * s, 0, mat('darkMetal'), { x: 0, y: sd * 3.4 * s, z: z + L / 2 * s, seg: 16 });
+        const tur = new THREE.Group();
+        tur.position.set(0, sd * 4.4 * s, z + L / 2 * s);
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(1.7 * s, 20, 12), mat(k === 'laser' ? 'hull' : 'metal'));
+        tur.add(dome);
+        if (k === 'laser') {
+          const brl = new THREE.Mesh(zGeo(new THREE.CylinderGeometry(0.35 * s, 0.5 * s, 5 * s, 12)), mat('darkMetal')); brl.position.z = 2.6 * s; tur.add(brl);
+          const lens = new THREE.Mesh(zGeo(new THREE.CylinderGeometry(0.42 * s, 0.42 * s, 0.2 * s, 12)), mat('glowMagenta')); lens.position.z = 5.1 * s; tur.add(lens);
+        } else {
+          for (const rx of [-0.45, 0.45]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.35 * s, 0.6 * s, 9 * s), mat('copper')); rail.position.set(rx * s, 0, 4.6 * s); tur.add(rail); }
+          const coil = new THREE.Mesh(new THREE.TorusGeometry(0.9 * s, 0.2 * s, 6, 16), mat('glowBlue')); coil.position.z = 1.6 * s; tur.add(coil);
+        }
+        tur.userData.muzzle = (k === 'laser' ? 5.2 : 9.2) * s;
+        tur.userData.kind = k;
+        g.add(tur);
+        P.turrets.push(tur);
+      }
+      z += L * s;
+    } else if (k === 'missiles') {
+      b.cyl(2.4 * s, 2.4 * s, 12 * s, z + 6 * s, mat('darkMetal'));
+      b.ring(4.6 * s, 4, (x, y, a) => {
+        b.box(4 * s, 3.2 * s, 11 * s, x, y, z + 6 * s, mat('accent', [1, 1]), a);
+        for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) {
+          const ox = Math.cos(a) * 2.05 * s, oy = Math.sin(a) * 2.05 * s;
+          const tx = -Math.sin(a) * (c - 0.5) * 1.6 * s, ty = Math.cos(a) * (c - 0.5) * 1.6 * s;
+          b.cyl(0.5 * s, 0.5 * s, 0.3 * s, z + (3 + r * 6) * s, mat('nozzle'), { x: x + ox + tx, y: y + oy + ty, seg: 10 });
+        }
+        P.missileMounts.push(new THREE.Vector3(x * 1.4, y * 1.4, z + 6 * s));
+      });
+      z += 12 * s;
     } else if (k === 'truss') {
       b.truss(z, z + 16 * s, 3 * s, 0.25 * s + 0.05, mat('metal'), 4);
       b.cyl(0.9 * s, 0.9 * s, 16 * s, z + 8 * s, mat('darkMetal'), { seg: 10 });
@@ -247,7 +298,7 @@ function payloadModule(_config, z0, s, P) {
 // ─────────────────────────────────────────────────────────────────────────────
 //  ENGINE-SPECIFIC SHIPS
 // ─────────────────────────────────────────────────────────────────────────────
-function baseParts() { return { rings: [], plumes: [], pulses: null, fields: [], lights: [], radMats: [], plate: null, iris: [], stage1: null, cores: [], glowMats: [] }; }
+function baseParts() { return { turrets: [], missileMounts: [], rings: [], plumes: [], pulses: null, fields: [], lights: [], radMats: [], plate: null, iris: [], stage1: null, cores: [], glowMats: [] }; }
 
 function buildChem(config) {
   const P = baseParts(), root = new THREE.Group(), b = new Builder();
@@ -714,6 +765,11 @@ export function buildShip(engine, config, stackParts = null) {
 
   model.update = (dt, st) => {
     time += dt;
+    // weapon turrets track the locked target (ship-local direction)
+    for (const t of parts.turrets) {
+      if (st.aimWorld) t.lookAt(st.aimWorld);
+      else t.rotation.set(0, 0, 0);
+    }
     const thr = st.throttle || 0;
     // habitat rings: ~0.8 g at 56 m radius → ω = sqrt(a/R) ≈ 0.37 rad/s (slowed visually)
     for (const r of parts.rings) r.obj.rotation.z += r.dir * dt * 0.22;

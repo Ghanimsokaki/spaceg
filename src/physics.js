@@ -77,6 +77,8 @@ export function partsFor(ship) {
 export function specOf(engine, parts) {
   const E = ENGINES[engine];
   let payload = 0, crew = 0, tanks = 0, cargo = 0, shields = 0, rads = 0, partCost = 0;
+  let solarMW = 0, reactorMW = 15, storeMJ = 300, solars = 0;
+  const weapons = [];
   for (const k of parts) {
     const p = PARTS[k]; if (!p) continue;
     if (p.tank) { tanks++; partCost += E.cost * 0.06; continue; }
@@ -84,6 +86,8 @@ export function specOf(engine, parts) {
     if (k === 'cargo') cargo++;
     if (k === 'shield') shields++;
     if (k === 'radiator') rads++;
+    if (p.power) { solarMW += p.power.solar || 0; reactorMW += p.power.reactor || 0; storeMJ += p.power.store || 0; if (p.power.solar) solars++; }
+    if (p.weapon) weapons.push(p.weapon);
   }
   const extraFuel = E.fuel * 0.25 * tanks;
   const fuelCap = E.fuel + extraFuel;
@@ -94,7 +98,8 @@ export function specOf(engine, parts) {
   return {
     engine, parts, payload: payload + tankDry, crew, fuelCap, rated, config,
     dry: (E.staged ? E.stage2.dry : E.dry) + payload + tankDry,
-    thrustMul: 1 + 0.08 * Math.min(rads, 3), cargo: Math.min(cargo, 4),
+    thrustMul: (1 + 0.08 * Math.min(rads, 3)) * (engine === 'ion' ? 1 + 0.2 * Math.min(solars, 4) : 1), cargo: Math.min(cargo, 4),
+    solarMW, reactorMW, storeMJ, weapons,
     cost: E.cost + partCost,
   };
 }

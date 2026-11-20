@@ -12,6 +12,7 @@ import * as PH from './physics.js';
 import { buildShip } from './shipModels.js';
 import { Universe, LensShader } from './universe.js';
 import { UI } from './ui.js';
+import { Combat, starFlux } from './combat.js';
 
 // ── renderer & scenes ────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -38,6 +39,7 @@ const fill = new THREE.DirectionalLight(0x6f8fc0, 0.25);
 scene.add(fill); fill.layers.enable(1);
 
 const universe = new Universe(scene);
+const combat = new Combat(scene);
 
 // Image-based lighting: a dim studio-in-space environment so metals and foils read correctly
 function makeEnvironment() {
@@ -98,16 +100,18 @@ hComposer.addPass(hBloom);
 hComposer.addPass(new OutputPass());
 
 // ── game state ───────────────────────────────────────────────────────────────
-const SAVE_KEY = 'sdw-save-v1';
+const SAVE_KEYS = { career: 'sdw-save-v1', sandbox: 'sdw-sandbox-v1' };
 let G_ = null; // game state
-function freshGame(name) {
+function freshGame(name, sandbox = false) {
   return {
-    company: name || 'Stellar Drive Works', credits: START_CREDITS, rep: 0, t: 0,
-    unlocked: ['chem'], fleet: [], activeId: null, done: {}, records: { maxBeta: 0 }, settings: { relOptics: true, bloom: true },
+    company: name || 'Stellar Drive Works', credits: sandbox ? 1e12 : START_CREDITS, rep: sandbox ? 999 : 0, t: 0, sandbox,
+    unlocked: sandbox ? Object.keys(ENGINES) : ['chem'], fleet: [], activeId: null, done: {}, records: { maxBeta: 0 }, kills: 0, killsBase: 0,
+    settings: { relOptics: true, bloom: true, invincible: false, infiniteFuel: false },
   };
 }
-function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(G_)); } catch (e) { /* storage unavailable */ } }
-function load() { try { const s = localStorage.getItem(SAVE_KEY); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+const keyOf = (g) => SAVE_KEYS[g && g.sandbox ? 'sandbox' : 'career'];
+function save() { try { if (G_) localStorage.setItem(keyOf(G_), JSON.stringify(G_)); } catch (e) { /* storage unavailable */ } }
+function load(mode = 'career') { try { const s = localStorage.getItem(SAVE_KEYS[mode]); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
 
 const activeShip = () => G_ && G_.fleet.find(s => s.id === G_.activeId);
 
@@ -133,6 +137,7 @@ function ensureView(ship) {
   const parts = PH.partsFor(ship);
   const key = ship.id + ship.engine + parts.join(',');
   if (key === viewKey) return;
+  if (!viewKey.startsWith(ship.id)) combat.clear();
   if (view) shipRoot.remove(view.root);
   view = buildShip(ship.engine, ship.config, parts);
   shipRoot.add(view.root);
@@ -215,6 +220,8 @@ window.addEventListener('keydown', (e) => {
   if (k === 'n') ui.toggleNav();
   if (k === 'm') ui.toggleMap();
   if (k === 'c') cycleCamera();
+  if (k === 'y') { const d = combat.cycleLock(); if (d) ui.toast('Target lock: drone ' + d.id); }
+  if (k === 'j') { ship.fwd = fwdOf(ship); combat.spawn(ship, 3); ui.toast('3 target drones launched ahead of you'); }
   if (k === 'p') { paused = !paused; ui.toast(paused ? 'Paused' : 'Resumed'); }
   if (k === 'f1' || k === '?') { ui.toggleHelp(); e.preventDefault(); }
   if (k >= '1' && k <= '7') setAP(ship, ['off', 'prograde', 'retrograde', 'target', 'approach', 'flyby', 'off'][+k - 1]);
@@ -494,7 +501,8 @@ function stepShip(ship, dt, realDtPart) {
   const b2 = PH.len(v) / C;
   ship.maxBeta = Math.max(ship.maxBeta, b2);
   const rated = PH.shipSpec(ship).rated;
-  if (b2 > rated && !ship.warpOn) {
+  const godMode = G_.sandbox && G_.settings.invincible;
+  if (b2 > rated && !ship.warpOn && !godMode) {
     const over = b2 / rated - 1;
     ship.hull -= over * 4 * dt / YEAR;
     if (!ship._hullWarned && ship.hull < 0.6) { ship._hullWarned = true; ui.toast('Hull erosion critical — interstellar dust exceeding shield rating!', 'warn'); }
@@ -502,7 +510,7 @@ function stepShip(ship, dt, realDtPart) {
   }
 
   // ── collisions
-  if (!ship.warpOn) for (const s of states) {
+  if (!ship.warpOn && !godMode) for (const s of states) {
     if (!s.b.radius || s.b.type === 'station') continue;
     const r = PH.len(PH.sub(ship.p, s.p));
     if (r < s.b.radius * (s.b.type === 'blackhole' ? 1.5 : 1.0)) {
@@ -648,9 +656,19 @@ const ui = new UI({
   activeShip, setAP, setWarp: (i) => setWarp(i), get warpIdx() { return warpIdx; }, WARPS,
   get effWarp() { return G_ ? G_.effWarp : 1; }, get warpLimitedBy() { return warpLimitedBy; },
   get fx() { return lastFx; }, get accel() { return accelNow; },
-  newGame: (name) => { G_ = freshGame(name); const s = PH.newShip('chem', 'probe', 'Kestrel I', ['science']); G_.fleet.push(s); G_.activeId = s.id; placeAtShipyard(s); save(); return G_; },
-  loadGame: () => { G_ = load(); if (G_) { G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
-  hasSave: () => !!load(),
+  newGame: (name, sandbox = false) => {
+    G_ = freshGame(name, sandbox);
+    const s = sandbox ? PH.newShip('amed', 'probe', 'Sandbox AMED', ['laser', 'missiles', 'solar', 'hab', 'cmd']) : PH.newShip('chem', 'probe', 'Kestrel I', ['science']);
+    G_.fleet.push(s); G_.activeId = s.id; placeAtShipyard(s); combat.clear(); save(); return G_;
+  },
+  loadGame: (mode = 'career') => { G_ = load(mode); combat.clear(); if (G_) { G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
+  hasSave: (mode = 'career') => !!load(mode),
+  combat,
+  teleport: (id) => { const s = activeShip(); if (s) teleport(s, PH.bodyById(id)); },
+  spawnDrones: (n) => { const s = activeShip(); if (s) { s.fwd = fwdOf(s); combat.spawn(s, n); ui.toast(`${n} target drones launched ahead of you`); } },
+  cycleLock: () => { const d = combat.cycleLock(); if (d) ui.toast('Target lock: drone ' + d.id); },
+  setFire: (on) => { fireButton = on; },
+  refill: (s) => refill(s),
   save, placeAtShipyard, universe, setHangarModel, hcam,
   flyShip: (id) => { G_.activeId = id; save(); },
   toggleWarpDrive: () => { const s = activeShip(); if (s) toggleWarpDrive(s); },
@@ -668,6 +686,33 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
+let fireButton = false;
+function refill(s) {
+  const E = ENGINES[s.engine];
+  s.fuel = PH.fuelCapacity(s); s.fuel2 = E.staged ? E.stage2.fuel : (E.fuel2 || 0); s.stage = 1; s.hull = 1; s._hullWarned = false;
+  s.missiles = undefined; s.energy = undefined;
+}
+function teleport(s, b) {
+  if (!b) return;
+  if (b.type === 'station') { placeAtShipyard(s); ui.toast(`${s.name} docked at the shipyard`); return; }
+  const st = PH.bodyState(b, G_.t);
+  const R = PH.targetArrivalRadius(b) * 1.5;
+  const a = Math.random() * Math.PI * 2;
+  const rh = [Math.cos(a), 0, Math.sin(a)];
+  const vc = b.mass ? Math.sqrt(G * b.mass / R) : 0;
+  const tang = PH.cross([0, 1, 0], rh);
+  s.sys = b.sys.id; s.p = PH.add(st.p, PH.mul(rh, R)); s.u = PH.uOfVel(PH.add(st.v, PH.mul(tang, vc)));
+  s.status = 'orbit'; s.orbiting = b.id; s.warpOn = false; s.throttle = 0; s.ap.mode = 'off'; s.ap.plan = null; s.ap.target = b.id;
+  combat.clear();
+  ui.toast(`Teleported into orbit around ${b.name} (${b.sys.name})`, 'good');
+}
+function onKill() {
+  G_.kills = (G_.kills || 0) + 1;
+  ui.toast(`Drone destroyed · ${G_.kills} kills`, 'good');
+  const c = CONTRACTS.find(x => x.kind === 'kills');
+  if (c && G_.kills - (G_.killsBase || 0) >= c.count) { G_.killsBase = G_.kills; completeContract(c, activeShip()); }
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   const rdt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
@@ -681,6 +726,7 @@ function frame(now) {
   }
   if (camera.view && camera.view.enabled) camera.clearViewOffset();
   ensureView(ship);
+  const tBefore = G_.t;
   if (!paused && !ui.mapOpen) {
     manualControl(ship, rdt);
     simulate(ship, rdt);
@@ -688,12 +734,18 @@ function frame(now) {
     simulate(ship, rdt);
   }
   if (!activeShip()) return;
+  if (G_.sandbox && G_.settings.infiniteFuel) { const E = ENGINES[ship.engine]; ship.fuel = PH.fuelCapacity(ship); if (!E.staged && E.fuel2) ship.fuel2 = E.fuel2; }
   ship.velocity = PH.velOfU(ship.u);
   ship.fwd = fwdOf(ship);
   updateCamera(ship, rdt);
   universe.relOptics = G_.settings.relOptics;
   universe.update(ship, G_.t, rdt, camera, sun);
-  view.update(rdt, { ...lastFx, firing: lastFx.firing && !paused, warp: ship.warpOn, timeWarp: WARPS[warpIdx], stage: ship.stage });
+  const cRes = combat.update({
+    ship, view, realDt: paused ? 0 : rdt, gameDt: G_.t - tBefore,
+    gravity: PH.gravityAt(ship.p, PH.systemState(SYS_BY_ID[ship.sys], G_.t)),
+    starFlux: starFlux(ship, G_.t), fire: !paused && (keys.has('f') || fireButton), onKill,
+  });
+  view.update(rdt, { ...lastFx, firing: lastFx.firing && !paused, warp: ship.warpOn, timeWarp: WARPS[warpIdx], stage: ship.stage, aimWorld: cRes.aimWorld });
   // lensing
   const L = universe.lensing;
   if (L) {
@@ -755,7 +807,7 @@ function syncShipCam() {
 }
 
 // debug/testing hook
-window.__sdw = { get game() { return G_; }, ui, PH, setWarp, cam, hcam, unlockAll() { G_.unlocked = Object.keys(ENGINES); G_.credits = 1e5; G_.rep = 99; } };
+window.__sdw = { combat, teleport: (id) => teleport(activeShip(), PH.bodyById(id)), get game() { return G_; }, ui, PH, setWarp, cam, hcam, unlockAll() { G_.unlocked = Object.keys(ENGINES); G_.credits = 1e5; G_.rep = 99; } };
 
 resize();
 requestAnimationFrame(frame);

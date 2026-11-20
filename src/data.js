@@ -286,6 +286,7 @@ export const CONTRACTS = [
   { id: 'titan', title: 'Titan Expedition', kind: 'orbit', target: 'sol:Titan', reward: 16, rep: 4, config: 'explorer', desc: 'Land a crewed expedition on Titan’s methane shores.' },
   { id: 'neptune', title: 'Neptune Deep Survey', kind: 'orbit', target: 'sol:Neptune', reward: 20, rep: 4, config: 'probe', desc: 'Orbit the ice giant at the edge of the planets.' },
   { id: 'jupiter-haul', title: 'He-3 Tanker Run', kind: 'orbit', target: 'sol:Jupiter', reward: 7, rep: 1, config: 'explorer', repeat: true, desc: 'Run a helium-3 tanker to Jupiter. Repeatable.' },
+  { id: 'weapons', title: 'Weapons Certification', kind: 'kills', count: 3, reward: 2.5, rep: 1, repeat: true, desc: 'Destroy 3 target drones (spawn them from the Weapons panel). Repeatable.' },
   { id: 'v01', title: 'Speed Record: 1% c', kind: 'speed', beta: 0.01, reward: 4, rep: 2, desc: 'Become the first company to exceed 3,000 km/s.' },
   { id: 'v10', title: 'Speed Record: 10% c', kind: 'speed', beta: 0.10, reward: 20, rep: 5, desc: 'Break 30,000 km/s.' },
   { id: 'v50', title: 'Speed Record: 50% c', kind: 'speed', beta: 0.50, reward: 80, rep: 10, desc: 'Half the speed of light.' },
@@ -319,8 +320,20 @@ export const PARTS = {
   cargo:    { key: 'cargo', name: 'Cargo pods', short: 'CARGO', mass: 400000, crew: 0, cost: 1.0, len: 20, desc: '+25% reward on repeatable contracts (up to 4 pods).' },
   shield:   { key: 'shield', name: 'Dust shield', short: 'SHIELD', mass: 60000, crew: 0, cost: 1.0, len: 3, desc: 'Beryllium & ice erosion shield. Raises the safe cruise speed.' },
   radiator: { key: 'radiator', name: 'Radiator array', short: 'RAD', mass: 30000, crew: 0, cost: 0.5, len: 18, desc: 'Dumps waste heat: +8% thrust each (up to 3).' },
+  solar:    { key: 'solar', name: 'Solar array', short: 'SOLAR', mass: 8000, crew: 0, cost: 0.3, len: 8, power: { solar: 4 }, desc: '4 MW at 1 AU (falls off with distance from the star). Ion drives get +20% thrust each.' },
+  reactor:  { key: 'reactor', name: 'Fission reactor', short: 'REACTOR', mass: 40000, crew: 0, cost: 1.2, len: 14, power: { reactor: 40 }, desc: '40 MW of steady power anywhere in the galaxy.' },
+  capacitor:{ key: 'capacitor', name: 'Capacitor bank', short: 'CAP', mass: 15000, crew: 0, cost: 0.4, len: 8, power: { store: 600 }, desc: '+600 MJ of stored energy for weapons.' },
+  laser:    { key: 'laser', name: 'Laser turrets', short: 'LASER', mass: 12000, crew: 0, cost: 0.8, len: 9, weapon: 'laser', desc: 'Two turrets. Instant hit, 25 damage, 30 MJ per shot, 30 km range.' },
+  railgun:  { key: 'railgun', name: 'Railgun turrets', short: 'RAIL', mass: 30000, crew: 0, cost: 1.5, len: 12, weapon: 'railgun', desc: 'Two turrets. 30 km/s slugs, 70 damage, 120 MJ per shot, 100 km range.' },
+  missiles: { key: 'missiles', name: 'Missile pods', short: 'MSL', mass: 20000, crew: 0, cost: 1.0, len: 12, weapon: 'missile', desc: '8 homing missiles, 120 damage, 500 km range. Rearm at the shipyard.' },
   truss:    { key: 'truss', name: 'Truss spacer', short: 'TRUSS', mass: 5000, crew: 0, cost: 0.02, len: 16, desc: 'Structural spacer. Keeps modules clear of the drive.' },
 };
-export const PART_ORDER = ['cmd', 'science', 'hab', 'colony', 'tank', 'cargo', 'shield', 'radiator', 'truss'];
-export const MAX_PARTS = 8;
+export const PART_ORDER = ['cmd', 'science', 'hab', 'colony', 'tank', 'cargo', 'shield', 'radiator', 'solar', 'reactor', 'capacitor', 'laser', 'railgun', 'missiles', 'truss'];
+export const MAX_PARTS = 12;
 export const DEFAULT_PARTS = { probe: ['science'], explorer: ['hab', 'cmd'], ark: ['colony', 'cmd'] };
+
+export const WEAPONS = {
+  laser:   { name: 'Laser', energy: 30, damage: 25, range: 3.0e4, cooldown: 0.4, color: '#ff4d6d' },
+  railgun: { name: 'Railgun', energy: 120, damage: 70, range: 1.0e5, cooldown: 1.6, speed: 3.0e4, color: '#9fe6ff' },
+  missile: { name: 'Missile', energy: 0, damage: 120, range: 5.0e5, cooldown: 1.0, ammo: 8, accel: 600, color: '#ffb347' },
+};
