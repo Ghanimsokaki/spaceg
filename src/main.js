@@ -662,6 +662,7 @@ function frame(now) {
     ui.updateHQ();
     return;
   }
+  if (camera.view && camera.view.enabled) camera.clearViewOffset();
   ensureView(ship);
   if (!paused && !ui.mapOpen) {
     manualControl(ship, rdt);
@@ -718,7 +719,8 @@ function renderIdle(rdt) {
     view.root.traverse(o => o.layers.set(1));
     const r = view.radius * 1.3; Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 4 * r + 2000 }); sun.shadow.camera.updateProjectionMatrix();
   }
-  const D = 640;
+  const D = 760;
+  if (window.innerWidth > 800) camera.setViewOffset(window.innerWidth, window.innerHeight, -window.innerWidth * 0.2, 0, window.innerWidth, window.innerHeight); else camera.clearViewOffset();
   camera.position.set(Math.sin(idleT * 0.05 + 2) * D, 120 + Math.sin(idleT * 0.1) * 60, Math.cos(idleT * 0.05 + 2) * D);
   camera.up.set(0, 1, 0); camera.lookAt(0, 0, 0);
   shipRoot.quaternion.set(0, 0, 0, 1);
