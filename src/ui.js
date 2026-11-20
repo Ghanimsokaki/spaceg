@@ -82,6 +82,7 @@ export class UI {
     $('mapClose').onclick = () => this.toggleMap(false);
     $('mapSys').onclick = () => { this.mapMode = 'sys'; };
     $('mapGal').onclick = () => { this.mapMode = 'gal'; };
+    this._bindTouch();
     const fb = $('fireBtn');
     const fireOn = (e) => { e.preventDefault(); this.api.setFire(true); fb.classList.add('on'); };
     const fireOff = () => { this.api.setFire(false); fb.classList.remove('on'); };
@@ -100,15 +101,63 @@ export class UI {
     $('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if (!b) return; this.setTarget(b.dataset.id); this.toggleNav(false); });
   }
 
+  // ── touch controls ─────────────────────────────────────────────────────────
+  touchCapable() {
+    return this._sawTouch || (window.matchMedia && matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 0;
+  }
+  applyTouchMode() {
+    const g = this.api.game;
+    const mode = (g && g.settings.touch) || 'auto';
+    const on = mode === 'on' || (mode === 'auto' && this.touchCapable());
+    document.body.classList.toggle('touchui', on);
+    const W = window.innerWidth, H = window.innerHeight;
+    document.body.classList.toggle('compact', on && (H < 600 || W < 760));
+    document.body.classList.toggle('portrait', on && H > W);
+    $('touch').hidden = !on || this.hqOpen || !g || $('hud').hidden;
+  }
+  _bindTouch() {
+    window.addEventListener('touchstart', () => { if (!this._sawTouch) { this._sawTouch = true; this.applyTouchMode(); } }, { passive: true, once: true });
+    const stick = $('stick'), knob = $('knob');
+    let sid = null, roll = 0, sx = 0, sy = 0;
+    const push = () => this.api.setTouch(sy, -sx, roll);
+    stick.addEventListener('pointerdown', (e) => { sid = e.pointerId; try { stick.setPointerCapture(sid); } catch (_) {} move(e); });
+    const move = (e) => {
+      if (e.pointerId !== sid) return;
+      const r = stick.getBoundingClientRect();
+      let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      const R = r.width / 2 - 18, L = Math.hypot(dx, dy);
+      if (L > R) { dx *= R / L; dy *= R / L; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      sx = Math.abs(dx / R) < 0.08 ? 0 : dx / R; sy = Math.abs(dy / R) < 0.08 ? 0 : dy / R;
+      push();
+    };
+    const end = (e) => { if (e.pointerId !== sid) return; sid = null; sx = sy = 0; knob.style.transform = ''; push(); };
+    stick.addEventListener('pointermove', move);
+    stick.addEventListener('pointerup', end); stick.addEventListener('pointercancel', end);
+    const hold = (el, on, off) => {
+      el.addEventListener('pointerdown', (e) => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (_) {} el.classList.add('on'); on(); });
+      const up = () => { el.classList.remove('on'); off(); };
+      el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    };
+    hold($('rollL'), () => { roll = -1; push(); }, () => { roll = 0; push(); });
+    hold($('rollR'), () => { roll = 1; push(); }, () => { roll = 0; push(); });
+    hold($('tFire'), () => this.api.setFire(true), () => this.api.setFire(false));
+    $('tThr').addEventListener('input', (e) => this.api.setThrottle(+e.target.value / 100));
+    $('tAuto').onclick = () => { const s = this.api.activeShip(); if (s) this.api.setAP(s, 'approach'); };
+    $('tPanels').onclick = () => { document.body.classList.toggle('panels-open'); $('tPanels').classList.toggle('on'); };
+    window.addEventListener('resize', () => this.applyTouchMode());
+  }
+
   showIntro() {
     $('intro').hidden = false;
-    $('contBtn').hidden = !this.api.hasSave();
+    $('contBtn').hidden = true; $('sandContBtn').hidden = true;
+    this.api.hasSave('career').then(v => { $('contBtn').hidden = !v; });
+    this.api.hasSave('sandbox').then(v => { $('sandContBtn').hidden = !v; });
     $('introEngines').innerHTML = ENGINE_ORDER.map(k => `<span class="tag ${k === 'amed' ? 'cy' : k === 'blackhole' ? 'vi' : ''}">${esc(ENGINES[k].name)}</span>`).join('');
     $('newBtn').onclick = () => { this.api.newGame($('coInput').value.trim()); this._startPlay(true); };
-    $('contBtn').onclick = () => { if (this.api.loadGame('career')) this._startPlay(false); };
-    $('sandContBtn').hidden = !this.api.hasSave('sandbox');
+    $('contBtn').onclick = async () => { if (await this.api.loadGame('career')) this._startPlay(false); };
     $('sandBtn').onclick = () => { this.api.newGame(($('coInput').value.trim() || 'Stellar Drive Works') + ' Sandbox', true); this._startPlay(true); };
-    $('sandContBtn').onclick = () => { if (this.api.loadGame('sandbox')) this._startPlay(false); };
+    $('sandContBtn').onclick = async () => { if (await this.api.loadGame('sandbox')) this._startPlay(false); };
   }
   _startPlay(isNew) {
     $('intro').hidden = true;
@@ -152,6 +201,7 @@ export class UI {
     if (!this.hqOpen && !this.api.activeShip()) { this.hqOpen = true; this.toast('Build or select a ship first', 'warn'); }
     $('hq').hidden = !this.hqOpen;
     $('hud').hidden = this.hqOpen;
+    this.applyTouchMode();
     $('labels').hidden = this.hqOpen;
     if (this.hqOpen) { this.toggleNav(false); this.toggleMap(false); this.renderHQ(); this.api.save(); }
   }
@@ -288,6 +338,13 @@ export class UI {
     else if (ap.mode === 'flyby') info = 'Full burn toward target, no braking';
     if (E.flybyOnly && ap.mode === 'approach') info = 'Daedalus cannot brake — use Flyby (6)';
     $('apInfo').textContent = info;
+
+    // touch layer + autosave indicator
+    this.applyTouchMode();
+    if (document.activeElement !== $('tThr')) $('tThr').value = Math.round(ship.throttle * 100);
+    const si = this.api.saveInfo;
+    $('saveInd').textContent = si.lastSaved ? `${Math.max(0, Math.round((Date.now() - si.lastSaved) / 1000))} s ago` : 'pending';
+    $('saveInd').title = 'Saved to ' + si.backend;
 
     // weapons panel
     const wsp = PH.shipSpec(ship), cs = this.api.combat.status;
@@ -798,8 +855,9 @@ export class UI {
     return `<label class="field"><span class="lbl">Company name</span><input id="coRename" value="${esc(g.company)}" maxlength="32"></label>
       <div class="row"><div><h5>Relativistic optics</h5><p>Aberration and Doppler shift of the sky and every body at high speed.</p></div><div class="acts"><button class="btn ${g.settings.relOptics ? '' : 'ghost'}" data-act="optics">${g.settings.relOptics ? 'On' : 'Off'}</button></div></div>
       <div class="row"><div><h5>Bloom</h5><p>Glow on engines, stars and accretion disks. Turn off for speed on weaker GPUs.</p></div><div class="acts"><button class="btn ${g.settings.bloom ? '' : 'ghost'}" data-act="bloom">${g.settings.bloom ? 'On' : 'Off'}</button></div></div>
+      <div class="row"><div><h5>Touch controls</h5><p>On-screen joystick, throttle and fire button. Auto shows them on touchscreens and touch laptops. ${this.touchCapable() ? 'Touch detected on this device.' : 'No touchscreen detected.'}</p></div><div class="acts"><button class="btn" data-act="touchmode">${({ auto: 'Auto', on: 'Always on', off: 'Off' })[g.settings.touch || 'auto']}</button></div></div>
       <div class="row"><div><h5>Reset company</h5><p>Erase this save and start over from the title screen.</p></div><div class="acts"><button class="btn ghost" data-act="reset">${this._confirm === 'reset' ? 'Confirm reset' : 'Reset'}</button></div></div>
-      <p class="blurb" style="color:var(--muted);font-size:12.5px">Progress saves to this browser automatically.</p>`;
+      <p class="blurb" style="color:var(--muted);font-size:12.5px">Progress saves automatically every 10 seconds, after every purchase or contract, and when you leave the page. Storage: <b>${esc(this.api.saveInfo.backend)}</b>${this.api.saveInfo.lastSaved ? ` · last saved ${new Date(this.api.saveInfo.lastSaved).toLocaleTimeString()}` : ''}.</p>`;
   }
 
   _hqChange(e) {}
@@ -891,12 +949,12 @@ export class UI {
       case 'sbfuel': g.settings.infiniteFuel = !g.settings.infiniteFuel; break;
       case 'sbdrones': this.toggleHQ(false); this.api.spawnDrones(+actEl.dataset.n); return;
       case 'sbtime': g.t += +actEl.dataset.dt; this.toast('Clock advanced'); break;
+      case 'touchmode': { const order = ['auto', 'on', 'off']; g.settings.touch = order[(order.indexOf(g.settings.touch || 'auto') + 1) % 3]; break; }
       case 'optics': g.settings.relOptics = !g.settings.relOptics; break;
       case 'bloom': g.settings.bloom = !g.settings.bloom; this.api.setBloom(g.settings.bloom); break;
       case 'reset':
         if (this._confirm !== 'reset') { this._confirm = 'reset'; break; }
-        try { localStorage.removeItem('sdw-save-v1'); } catch (_) {}
-        location.reload(); return;
+        this.api.deleteSave().then(() => location.reload()); return;
     }
     this.api.save();
     this.renderHQ();

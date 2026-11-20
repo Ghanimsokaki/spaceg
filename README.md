@@ -45,8 +45,37 @@ In HQ → **Shipyard**, pick a drive section, then stack up to 8 modules in fron
 | Dust shield | Raises the safe cruise speed |
 | Radiator array | +8% thrust (up to 3) |
 | Truss spacer | Structural spacing |
+| Solar array | 4 MW at 1 AU (fades with distance); +20% ion thrust |
+| Fission reactor | 40 MW steady power |
+| Capacitor bank | +600 MJ weapon energy |
+| Laser turrets | Instant hit, 25 damage, 30 km range |
+| Railgun turrets | 30 km/s leading slugs, 70 damage, 100 km range |
+| Missile pods | 8 homing missiles, 120 damage, 500 km range |
 
-Every module adds mass, so it costs Δv and acceleration. Docked ships can be refitted from the Fleet tab.
+Every module adds mass, so it costs Δv and acceleration. You can fit up to 12 modules. Docked ships can be refitted from the Fleet tab.
+
+## Weapons and sandbox
+
+- Press **J** to launch target drones, **Y** to cycle the lock, and hold **F** to fire. Turrets track the locked drone.
+- Weapons draw from the ship's capacitor, which recharges from reactor and solar power.
+- Career mode has a repeatable *Weapons Certification* contract.
+
+**Sandbox mode** (on the title screen) has its own save. It gives you:
+- unlimited funds, with every drive and part unlocked
+- teleporting into orbit around any body
+- invincibility and infinite fuel
+- a drone launcher and clock skips
+
+## Touch, trackpad and saving
+
+- **Touchscreens** (phones, tablets and touch laptops) get on-screen controls automatically:
+  - a joystick for pitch and yaw, plus roll buttons
+  - a throttle slider, a fire button and a "Go to" autopilot button
+  - drag the sky to look, and pinch to zoom
+  - small screens switch to a compact layout; tap **Info** for the flight panels
+- You can force touch controls on or off in Settings.
+- **Trackpads:** click-drag to look, two-finger scroll or pinch to zoom.
+- **Saving:** progress saves automatically to **IndexedDB**, falling back to localStorage. It saves every 10 seconds, after purchases and contracts, and when the tab is hidden or closed. Older localStorage saves are migrated on first load.
 
 ## Physics
 

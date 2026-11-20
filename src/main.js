@@ -13,6 +13,7 @@ import { buildShip } from './shipModels.js';
 import { Universe, LensShader } from './universe.js';
 import { UI } from './ui.js';
 import { Combat, starFlux } from './combat.js';
+import { storage } from './storage.js';
 
 // ── renderer & scenes ────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -110,8 +111,17 @@ function freshGame(name, sandbox = false) {
   };
 }
 const keyOf = (g) => SAVE_KEYS[g && g.sandbox ? 'sandbox' : 'career'];
-function save() { try { if (G_) localStorage.setItem(keyOf(G_), JSON.stringify(G_)); } catch (e) { /* storage unavailable */ } }
-function load(mode = 'career') { try { const s = localStorage.getItem(SAVE_KEYS[mode]); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+// autosave: IndexedDB (localStorage fallback); writes are coalesced so a burst of saves costs one write
+let saving = false, saveAgain = false, lastSaved = 0;
+function save() {
+  if (!G_) return;
+  if (saving) { saveAgain = true; return; }
+  saving = true;
+  storage.set(keyOf(G_), G_).then(() => { lastSaved = Date.now(); }).finally(() => { saving = false; if (saveAgain) { saveAgain = false; save(); } });
+}
+const load = (mode = 'career') => storage.get(SAVE_KEYS[mode]);
+document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+window.addEventListener('pagehide', save);
 
 const activeShip = () => G_ && G_.fleet.find(s => s.id === G_.activeId);
 
@@ -177,9 +187,30 @@ function setHangarModel(engine, parts) {
 const cam = { yaw: 2.4, pitch: 0.28, dist: 300, mode: 'chase', zoom: 1 };
 const hcam = { yaw: 0.9, pitch: 0.25, dist: 500, spin: true };
 let dragging = false, lastX = 0, lastY = 0, dragTarget = 'space';
-canvas.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; dragTarget = ui.hqOpen ? 'hangar' : 'space'; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointerup', (e) => { dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch (_) {} });
+// one pointer drags the camera; two pointers pinch-zoom (touchscreens)
+const ptrs = new Map();
+let pinch0 = 0;
+canvas.addEventListener('pointerdown', (e) => {
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) { dragging = true; lastX = e.clientX; lastY = e.clientY; dragTarget = ui.hqOpen ? 'hangar' : 'space'; }
+  else { dragging = false; const [a, b] = [...ptrs.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); }
+  canvas.setPointerCapture(e.pointerId);
+});
+const ptrUp = (e) => { ptrs.delete(e.pointerId); if (ptrs.size === 0) dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch (_) {} };
+canvas.addEventListener('pointerup', ptrUp);
+canvas.addEventListener('pointercancel', ptrUp);
 canvas.addEventListener('pointermove', (e) => {
+  if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinch0 > 0 && d > 0) {
+      const f = pinch0 / d;
+      if (ui.hqOpen) hcam.dist = Math.max(80, Math.min(6000, hcam.dist * f));
+      else cam.zoom = Math.max(0.25, Math.min(40, cam.zoom * f));
+    }
+    pinch0 = d; return;
+  }
   if (!dragging) return;
   const dx = e.clientX - lastX, dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
   const c = dragTarget === 'hangar' ? hcam : cam;
@@ -278,8 +309,9 @@ export function setAP(ship, mode) {
 
 // ── manual flight control ────────────────────────────────────────────────────
 const qTmp = new THREE.Quaternion(), qShip = new THREE.Quaternion(), vTmp = new THREE.Vector3();
+const touch = { pitch: 0, yaw: 0, roll: 0 };
 function manualControl(ship, rdt) {
-  let pitch = 0, yaw = 0, roll = 0;
+  let pitch = touch.pitch, yaw = touch.yaw, roll = touch.roll;
   if (keys.has('w')) pitch -= 1; if (keys.has('s')) pitch += 1;
   if (keys.has('a')) yaw += 1; if (keys.has('d')) yaw -= 1;
   if (keys.has('q')) roll -= 1; if (keys.has('e')) roll += 1;
@@ -661,13 +693,17 @@ const ui = new UI({
     const s = sandbox ? PH.newShip('amed', 'probe', 'Sandbox AMED', ['laser', 'missiles', 'solar', 'hab', 'cmd']) : PH.newShip('chem', 'probe', 'Kestrel I', ['science']);
     G_.fleet.push(s); G_.activeId = s.id; placeAtShipyard(s); combat.clear(); save(); return G_;
   },
-  loadGame: (mode = 'career') => { G_ = load(mode); combat.clear(); if (G_) { G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
-  hasSave: (mode = 'career') => !!load(mode),
+  loadGame: async (mode = 'career') => { G_ = await load(mode); combat.clear(); if (G_) { G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
+  hasSave: async (mode = 'career') => !!(await load(mode)),
+  deleteSave: () => storage.del(keyOf(G_)),
+  get saveInfo() { return { backend: storage.backend, lastSaved }; },
   combat,
   teleport: (id) => { const s = activeShip(); if (s) teleport(s, PH.bodyById(id)); },
   spawnDrones: (n) => { const s = activeShip(); if (s) { s.fwd = fwdOf(s); combat.spawn(s, n); ui.toast(`${n} target drones launched ahead of you`); } },
   cycleLock: () => { const d = combat.cycleLock(); if (d) ui.toast('Target lock: drone ' + d.id); },
   setFire: (on) => { fireButton = on; },
+  setTouch: (p, y, r) => { touch.pitch = p; touch.yaw = y; touch.roll = r; },
+  setThrottle: (v) => { const s = activeShip(); if (!s) return; s.throttle = v; if (s.ap.mode === 'approach' || s.ap.mode === 'flyby') { s.ap.mode = 'off'; s.ap.plan = null; } if (v > 0 && s.status === 'docked') s.status = 'flying'; },
   refill: (s) => refill(s),
   save, placeAtShipyard, universe, setHangarModel, hcam,
   flyShip: (id) => { G_.activeId = id; save(); },
@@ -759,7 +795,7 @@ function frame(now) {
   syncShipCam();
   composer.render();
   ui.updateHUD(ship, camera);
-  saveTimer += rdt; if (saveTimer > 15) { saveTimer = 0; save(); }
+  if (performance.now() - saveTimer > 10000) { saveTimer = performance.now(); save(); }
 }
 
 function renderHangar(rdt) {

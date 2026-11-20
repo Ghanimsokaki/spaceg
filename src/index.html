@@ -186,7 +186,7 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
 #map header h2 { margin: 0; font-family: var(--f-display); letter-spacing: .16em; text-transform: uppercase; font-size: 18px; }
 #mapc { width: 100%; height: 100%; display: block; cursor: crosshair; }
 
-#intro { display: grid; place-items: center start; padding-left: max(16px, 7vw) !important; background: linear-gradient(90deg, rgba(6,11,20,.85), rgba(6,11,20,.35) 55%, transparent); padding: 16px; }
+#intro { display: grid; place-items: center start; overflow-y: auto; padding-left: max(16px, 7vw) !important; background: linear-gradient(90deg, rgba(6,11,20,.85), rgba(6,11,20,.35) 55%, transparent); padding: 16px; }
 .introbox { width: min(560px, 100%); text-align: left; }
 .introbox .badge { display: inline-block; border: 1px solid var(--line-hi); color: var(--cyan); padding: 4px 10px; border-radius: 999px; font: 600 11px var(--f-mono); letter-spacing: .12em; text-transform: uppercase; }
 .introbox h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(40px, 9vw, 78px); line-height: .9; margin: 14px 0 10px; letter-spacing: .04em; text-transform: uppercase; text-wrap: balance; }
@@ -233,6 +233,53 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
 .sbgrid button { text-align: left; }
 .sbgrid h6 { grid-column: 1 / -1; margin: 8px 0 0; font-family: var(--f-display); letter-spacing: .14em; text-transform: uppercase; font-size: 11px; color: var(--amber); }
 @media (max-width: 640px) { .weapons { bottom: auto; top: 74px; width: calc(50% - 18px); } }
+/* ── touch controls ── */
+#touch { position: fixed; inset: auto 0 0 0; height: 0; z-index: 6; pointer-events: none; }
+#touch > * { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; }
+.stick { position: fixed; left: max(18px, env(safe-area-inset-left, 0px)); bottom: max(18px, env(safe-area-inset-bottom, 0px)); width: 150px; height: 150px; border-radius: 50%; border: 1px solid var(--line-hi); background: radial-gradient(circle, rgba(0,229,255,.08), rgba(9,16,30,.55) 70%); backdrop-filter: blur(6px); }
+.stick span { position: absolute; left: 0; right: 0; bottom: -18px; text-align: center; font: 600 9px var(--f-mono); color: var(--dim); letter-spacing: .1em; }
+.knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%; background: rgba(0,229,255,.25); border: 1px solid var(--cyan); box-shadow: 0 0 14px rgba(0,229,255,.35); }
+.tleft { position: fixed; left: max(180px, calc(env(safe-area-inset-left, 0px) + 180px)); bottom: max(22px, env(safe-area-inset-bottom, 0px)); display: grid; gap: 8px; }
+.tright { position: fixed; right: max(18px, env(safe-area-inset-right, 0px)); bottom: max(18px, env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; gap: 8px; align-items: end; }
+.tbtn { width: 58px; height: 58px; border-radius: 50%; border: 1px solid var(--line-hi); background: rgba(9,16,30,.7); color: var(--cyan); font: 700 22px var(--f-display); backdrop-filter: blur(6px); }
+.tbtn.small { height: 34px; border-radius: 17px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.tbtn.fire { width: 76px; height: 76px; border-color: rgba(255,77,109,.7); color: #ff8a9c; font-size: 14px; letter-spacing: .12em; grid-row: 1; grid-column: 1; }
+.tbtn.on, .tbtn:active { background: rgba(0,229,255,.25); }
+.tbtn.fire.on, .tbtn.fire:active { background: rgba(255,77,109,.35); color: #fff; }
+#tAuto { grid-row: 2; grid-column: 1; width: 76px; }
+.throt { grid-row: 1 / span 2; grid-column: 2; display: grid; justify-items: center; gap: 4px; padding: 8px 6px; border: 1px solid var(--line); border-radius: 30px; background: rgba(9,16,30,.6); backdrop-filter: blur(6px); }
+.throt input { writing-mode: vertical-lr; direction: rtl; width: 34px; height: 150px; accent-color: var(--amber); margin: 0; }
+body.touchui .keys { display: none; }
+body.touchui .dock { bottom: max(200px, calc(env(safe-area-inset-bottom, 0px) + 200px)); flex-direction: column; }
+body.touchui .weapons { bottom: 240px; }
+body.touchui .engine { bottom: max(18px, env(safe-area-inset-bottom, 0px)); max-width: calc(100% - 520px); }
+@media (max-width: 900px) {
+  body.touchui:not(.panels-open) .side { display: none; }
+  body.touchui .engine { bottom: 200px; max-width: calc(100% - 24px); }
+  body.touchui .weapons { top: 74px; bottom: auto; }
+  body.touchui .phasedesc { display: none; }
+}
+/* compact touch layout for phones (landscape & portrait) */
+body.compact .co .name, body.compact .co .rep, body.compact .keys, body.compact .engine .throttle, body.compact #phaseDesc, body.compact [data-tog=full], body.compact [data-tog=cut] { display: none; }
+body.compact .co { padding: 6px 10px; }
+body.compact .topbar { grid-template-columns: auto auto auto; }
+body.compact .dock { top: auto; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom, 0px)); flex-direction: row; }
+body.compact .dock .chip { padding: 6px 8px; font-size: 11px; }
+body.compact .dock kbd { display: none; }
+body.compact .engine { left: 50%; transform: translateX(-50%); bottom: max(54px, calc(env(safe-area-inset-bottom, 0px) + 54px)); max-width: calc(100% - 470px); padding: 6px 10px; gap: 8px; }
+body.compact .weapons { top: 66px; bottom: auto; width: 230px; padding: 8px 10px; gap: 5px; }
+body.compact .weapons .wlist, body.compact #wpnPow, body.compact .weapons .btnrow { display: none; }
+body.compact .side { top: 66px; max-height: calc(100% - 90px); }
+body.compact.portrait .topbar { grid-template-columns: 1fr; }
+body.compact.portrait .co, body.compact.portrait .clock { display: none; }
+body.compact.portrait .engine { bottom: 205px; max-width: calc(100% - 24px); }
+body.compact.portrait .dock { bottom: 300px; }
+body.compact.portrait #toasts { top: 120px; }
+body.compact.portrait .weapons { top: 60px; right: 12px; width: calc(100% - 24px); }
+body.compact.portrait .stick { width: 130px; height: 130px; }
+body.compact.portrait .tleft { left: 160px; }
+body.compact.portrait .tbtn.fire { width: 64px; height: 64px; }
+body.compact.portrait .throt input { height: 120px; }
 #help .box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(720px, calc(100% - 32px)); max-height: calc(100% - 40px); overflow: auto; padding: 22px; }
 #help h2 { margin: 0 0 12px; font-family: var(--f-display); letter-spacing: .14em; text-transform: uppercase; }
 #help .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-size: 13px; }
@@ -259,6 +306,13 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
   .amedphases { grid-template-columns: 1fr; }
   .co { flex-wrap: wrap; gap: 8px; }
 }
+@media (max-height: 560px) {
+  #intro { place-items: start; padding-block: 12px !important; }
+  .introbox h1 { font-size: 40px; margin: 8px 0 6px; }
+  .introbox p { font-size: 13px; margin-bottom: 10px; }
+  .introbox .engines { display: none; }
+  .topbar .clock .savei { display: none; }
+}
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 </style>
 </head>
@@ -277,6 +331,7 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
     <div class="clock panel">
       <div><span class="lbl">Earth date</span><span class="num" id="date">2150-01-01</span></div>
       <div><span class="lbl">Ship time τ</span><span class="num tau" id="tau">+0 d</span></div>
+      <div class="savei"><span class="lbl">Autosave</span><span class="num" id="saveInd">—</span></div>
     </div>
   </div>
 
@@ -356,6 +411,20 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
 </div>
 <div id="toasts"></div>
 
+<div id="touch" hidden aria-label="Touch flight controls">
+  <div class="stick" id="stick"><div class="knob" id="knob"></div><span>PITCH · YAW</span></div>
+  <div class="tleft">
+    <button class="tbtn" id="rollL" aria-label="Roll left">⟲</button>
+    <button class="tbtn" id="rollR" aria-label="Roll right">⟳</button>
+    <button class="tbtn small" id="tPanels">Info</button>
+  </div>
+  <div class="tright">
+    <button class="tbtn fire" id="tFire">FIRE</button>
+    <button class="tbtn small" id="tAuto">Go to</button>
+    <div class="throt"><input type="range" id="tThr" min="0" max="100" value="0" aria-label="Throttle"><span class="lbl">THR</span></div>
+  </div>
+</div>
+
 <div id="nav" class="panel" hidden></div>
 
 <div id="map" class="overlay" hidden>
@@ -418,6 +487,8 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
         <li><kbd>R</kbd> ramscoop · <kbd>B</kbd> magnetic sail</li>
         <li><kbd>G</kbd> stage (Daedalus) · <kbd>V</kbd> warp · <kbd>[</kbd><kbd>]</kbd> warp speed</li>
         <li><kbd>F</kbd> fire (hold) · <kbd>Y</kbd> next target · <kbd>J</kbd> launch target drones</li>
+        <li>Touch: left stick steers, ⟲ ⟳ roll, right slider is throttle, drag the sky to look, pinch to zoom</li>
+        <li>Trackpad: click-drag to look, two-finger scroll or pinch to zoom</li>
       </ul></div>
       <div><span class="lbl">Navigation</span><ul>
         <li><kbd>T</kbd> next target · <kbd>N</kbd> target list</li>
