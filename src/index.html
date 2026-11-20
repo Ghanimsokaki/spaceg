@@ -107,7 +107,7 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
 .dock .chip { padding: 7px 10px; font-size: 12px; background: var(--panel); backdrop-filter: blur(8px); }
 .keys { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px)); font-size: 11px; color: var(--dim); font-family: var(--f-mono); text-align: right; pointer-events: none; }
 
-#toasts { position: absolute; left: 50%; top: 74px; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; pointer-events: none; width: min(560px, calc(100% - 24px)); }
+#toasts { position: fixed; z-index: 30; left: 50%; top: 74px; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; pointer-events: none; width: min(560px, calc(100% - 24px)); }
 .toast { background: rgba(9,16,30,.88); border: 1px solid var(--line); border-left: 3px solid var(--cyan); padding: 8px 14px; border-radius: 4px; font-size: 13px; animation: tin .25s ease-out; max-width: 100%; }
 .toast.warn { border-left-color: var(--amber); } .toast.bad { border-left-color: var(--bad); } .toast.good { border-left-color: var(--good); }
 .toast.contract { border: 1px solid rgba(245,158,11,.5); border-left: 3px solid var(--amber); background: rgba(30,20,4,.9); font-size: 14px; }
@@ -196,6 +196,27 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
 .introbox .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
 .introbox .actions .field { margin: 0; flex: 1 1 220px; }
 
+.designhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin: 16px 0 6px; }
+.presets { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.stack { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.stack li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 7px 10px; border-bottom: 1px solid var(--line); background: rgba(17,29,51,.55); font-size: 13px; }
+.stack li:last-child { border-bottom: 0; }
+.stack li.drive { background: rgba(0,229,255,.06); font-family: var(--f-display); letter-spacing: .06em; }
+.stack .pm { font-size: 11px; color: var(--muted); }
+.stack .pb { display: flex; gap: 3px; min-width: 84px; justify-content: flex-end; }
+.mini { width: 26px; height: 24px; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
+.mini:hover:not(:disabled), .mini:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
+.mini.x:hover { border-color: var(--bad); color: var(--bad); }
+.mini:disabled { opacity: .25; cursor: default; }
+.palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; margin: 6px 0 12px; }
+.part { text-align: left; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 6px; background: transparent; cursor: pointer; display: grid; gap: 2px; }
+.part b { font-family: var(--f-display); font-size: 13.5px; letter-spacing: .04em; color: var(--text); }
+.part span { font: 11px var(--f-mono); color: var(--amber); }
+.part small { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.part:hover:not(:disabled), .part:focus-visible { border-color: var(--cyan); border-style: solid; outline: none; }
+.part:disabled { opacity: .35; cursor: not-allowed; }
+.problems { border: 1px solid rgba(245,158,11,.45); background: rgba(245,158,11,.08); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }
+.problems p { margin: 2px 0; font-size: 12.5px; color: #fbd38d; }
 #help .box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(720px, calc(100% - 32px)); max-height: calc(100% - 40px); overflow: auto; padding: 22px; }
 #help h2 { margin: 0 0 12px; font-family: var(--f-display); letter-spacing: .14em; text-transform: uppercase; }
 #help .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-size: 13px; }
@@ -304,8 +325,8 @@ input[type=range] { width: 100%; accent-color: var(--cyan); }
     <button class="chip" id="helpBtn">Help <kbd>?</kbd></button>
   </div>
   <div class="keys">W/S A/D Q/E steer · Shift/Ctrl throttle · Z full · X cut · , . time warp</div>
-  <div id="toasts"></div>
 </div>
+<div id="toasts"></div>
 
 <div id="nav" class="panel" hidden></div>
 

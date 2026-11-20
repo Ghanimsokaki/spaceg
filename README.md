@@ -30,6 +30,24 @@ The AMED model and flight logic follow the technical dossier:
 
 Autopilot to Proxima b takes about 15.6 Earth-years, or 14.7 years of ship time.
 
+## Ship designer
+
+In HQ → **Shipyard**, pick a drive section, then stack up to 8 modules in front of it. You can use the presets or build your own, and reorder (▲▼) or remove (✕) modules. The 3D preview and the performance table update live.
+
+| Module | Effect |
+|---|---|
+| Command module | Crew of 6; controls the ship |
+| Science bus | Minimum probe payload |
+| Habitat ring | 24 crew, rotating gravity; makes the ship an **Explorer** |
+| Colony module | 1,200 colonists; makes it a **Colony Ark** |
+| Extra propellant tank | +25% of the drive's propellant |
+| Cargo pods | +25% pay on repeatable contracts (up to 4) |
+| Dust shield | Raises the safe cruise speed |
+| Radiator array | +8% thrust (up to 3) |
+| Truss spacer | Structural spacing |
+
+Every module adds mass, so it costs Δv and acceleration. Docked ships can be refitted from the Fleet tab.
+
 ## Physics
 
 - Relativistic rocket integration on proper velocity (u = γv), so ships approach but never reach c. The game tracks Earth time and ship proper time separately.

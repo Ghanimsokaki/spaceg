@@ -2,7 +2,7 @@
 //  HUD, labels, maps and the company HQ.
 // ─────────────────────────────────────────────────────────────────────────────
 import * as THREE from 'three';
-import { C, AU, LY, YEAR, DAY, G0, ENGINES, ENGINE_ORDER, CONFIGS, SYSTEMS, SYS_BY_ID, CONTRACTS, START_YEAR } from './data.js';
+import { C, AU, LY, YEAR, DAY, G0, ENGINES, ENGINE_ORDER, CONFIGS, SYSTEMS, SYS_BY_ID, CONTRACTS, START_YEAR, PARTS, PART_ORDER, MAX_PARTS, DEFAULT_PARTS } from './data.js';
 import * as PH from './physics.js';
 
 const $ = (id) => document.getElementById(id);
@@ -13,7 +13,7 @@ export class UI {
     this.api = api;
     this.hqOpen = false; this.mapOpen = false; this.helpOpen = false; this.navOpen = false;
     this.tab = 'fleet';
-    this.sel = { engine: 'chem', config: 'probe', name: '' };
+    this.sel = { engine: 'chem', parts: ['science'], name: '', refitId: null };
     this.mapMode = 'sys';
     this.hudTimer = 0;
     this.labelEls = new Map();
@@ -104,7 +104,7 @@ export class UI {
   _startPlay(isNew) {
     $('intro').hidden = true;
     $('hud').hidden = false;
-    this.sel.engine = 'chem'; this.sel.config = 'probe';
+    this.sel.engine = 'chem'; this.sel.parts = ['science']; this.sel.refitId = null;
     if (isNew) {
       this.toast(`Welcome, CEO. ${this.api.game.company} owns one chemical rocket and $${this.api.game.credits}B. Take the Lunar Survey to start earning.`, 'good');
       setTimeout(() => this.toggleHelp(true), 600);
@@ -217,7 +217,8 @@ export class UI {
     $('spd').innerHTML = esc(UI.fmtSpeed(spRef)).replace(/ (\S+)$/, '<small>$1</small>');
     $('spdRef').textContent = ship.warpOn ? 'warp bubble' : 'rel. ' + ref.name;
     $('betaBar').style.width = Math.min(100, beta * 100) + '%';
-    $('ratedTick').style.left = Math.min(100, E.rated * 100) + '%';
+    const ratedNow = PH.shipSpec(ship).rated;
+    $('ratedTick').style.left = Math.min(100, ratedNow * 100) + '%';
     $('betaTxt').textContent = ship.warpOn ? `${ship.warpC}c WARP` : (beta < 0.001 ? beta.toExponential(2) : beta.toFixed(beta > 0.99 ? 5 : 4)) + 'c';
     $('gam').textContent = gam < 1.0001 ? (gam - 1 < 1e-9 ? '1.000' : '1 + ' + (gam - 1).toExponential(2)) : gam.toFixed(gam > 10 ? 2 : 4);
     $('acc').textContent = (this.api.accel / G0).toFixed(this.api.accel / G0 < 0.01 ? 4 : 3) + ' g';
@@ -225,7 +226,7 @@ export class UI {
     $('dv').textContent = E.ram ? (E.key === 'amed' ? 'ram ∞ · ' : 'ram ∞ · ') + UI.fmtSpeed(PH.deltaVofRapidity(phi)) : E.warp && ship.warpOn ? 'warp' : UI.fmtSpeed(PH.deltaVofRapidity(phi));
     $('mass').textContent = UI.fmtMass(PH.shipMass(ship));
     $('dil').textContent = '1 : ' + gam.toFixed(gam < 1.01 ? 4 : 2);
-    const f1 = E.staged ? ship.fuel / E.fuel : ship.fuel / E.fuel;
+    const f1 = ship.fuel / PH.fuelCapacity(ship);
     $('f1name').textContent = E.staged ? 'Stage 1' : (E.short === 'AMED' ? 'Pellets' : 'Fuel');
     $('f1').style.width = (f1 * 100) + '%'; $('f1t').textContent = (f1 * 100).toFixed(f1 < 0.1 ? 1 : 0) + '%';
     const hasF2 = E.staged || E.fuel2;
@@ -265,8 +266,8 @@ export class UI {
     document.querySelectorAll('[data-ap]').forEach(b => b.classList.toggle('on', ship.ap.mode === b.dataset.ap));
     const ap = ship.ap;
     $('apPhase').textContent = ap.mode !== 'off' ? (ap.phaseLabel || ap.mode.toUpperCase()) : '';
-    $('cruiseBox').hidden = E.rated < 0.02;
-    $('cruiseT').textContent = ap.cruise.toFixed(3) + 'c' + (ap.cruise > E.rated ? ' ⚠' : '');
+    $('cruiseBox').hidden = ratedNow < 0.02;
+    $('cruiseT').textContent = ap.cruise.toFixed(3) + 'c' + (ap.cruise > ratedNow ? ' ⚠' : '');
     if (document.activeElement !== $('cruise')) $('cruise').value = Math.round(ap.cruise * 1000);
     let info = '';
     if (ap.plan && ap.plan.kind === 'lambert') info = (ap.plan.tDep > g.t ? `Waiting for launch window · burn ${UI.fmtDate(ap.plan.tDep)} · ` : 'Transfer · ') + `Δv ${(ap.plan.dv / 1000).toFixed(1)} km/s · arrive ${UI.fmtDate(ap.plan.tArr)}`;
@@ -531,31 +532,31 @@ export class UI {
   // ── HQ ─────────────────────────────────────────────────────────────────────
   updateHQ() {
     if (!this.hqOpen) return;
-    if (this.tab === 'yard') this.api.setHangarModel(this.sel.engine, this.sel.config);
-    else { const s = this.api.activeShip(); if (s) this.api.setHangarModel(s.engine, s.config); else this.api.setHangarModel('amed', 'explorer'); }
+    if (this.tab === 'yard') this.api.setHangarModel(this.sel.engine, this.sel.parts);
+    else { const s = this.api.activeShip(); if (s) this.api.setHangarModel(s.engine, PH.partsFor(s)); else this.api.setHangarModel('amed', 'explorer'); }
     const E = ENGINES[this.tab === 'yard' ? this.sel.engine : (this.api.activeShip() || { engine: 'amed' }).engine];
     $('capT').textContent = E.name; $('capT').style.color = E.color;
     $('capS').textContent = E.era + ' · drag to rotate · scroll to zoom';
   }
 
-  shipStats(engine, config) {
-    const E = ENGINES[engine];
-    const s = PH.newShip(engine, config, '');
+  shipStats(engine, parts) {
+    const s = PH.newShip(engine, 'probe', '', parts);
+    const sp = PH.shipSpec(s);
     const wet = PH.shipMass(s);
     const phi = PH.rapidityAvailable(s);
-    const acc = E.thrust / wet;
-    return { wet, dry: PH.shipDryMass(s), phi, dv: PH.deltaVofRapidity(phi), acc, cost: E.cost + CONFIGS[config].cost };
+    const acc = PH.rocketParams(s).F / wet;
+    return { wet, dry: sp.dry, phi, dv: PH.deltaVofRapidity(phi), acc, cost: sp.cost, spec: sp };
   }
 
   refitCost(ship) {
-    const E = ENGINES[ship.engine];
+    const E = ENGINES[ship.engine], sp = PH.shipSpec(ship);
     let c = 0;
-    if (E.staged) { c += (E.fuel - ship.fuel + E.stage2.fuel - ship.fuel2) * E.fuelPrice; if (ship.stage === 2) c += E.cost * 0.4; }
+    if (E.staged) { c += (sp.fuelCap - ship.fuel + E.stage2.fuel - ship.fuel2) * E.fuelPrice; if (ship.stage === 2) c += E.cost * 0.4; }
     else {
-      c += (E.fuel - ship.fuel) * E.fuelPrice;
+      c += (sp.fuelCap - ship.fuel) * E.fuelPrice;
       if (E.fuel2) c += (E.fuel2 - ship.fuel2) * (E.fuel2Price || 0);
     }
-    c += (1 - ship.hull) * 0.3 * (E.cost + CONFIGS[ship.config].cost);
+    c += (1 - ship.hull) * 0.3 * sp.cost;
     return Math.max(0, c);
   }
 
@@ -590,13 +591,13 @@ export class UI {
       const inSol = s.sys === 'sol';
       h += `<div class="row ${act ? 'active' : ''}">
         <div><h5>${esc(s.name)} ${act ? '<span class="tag cy">ACTIVE</span>' : ''}</h5>
-          <p>${esc(E.name)} · ${esc(CONFIGS[s.config].name)}</p>
+          <p>${esc(E.name)} · ${esc(CONFIGS[PH.shipSpec(s).config].name)} · ${PH.partsFor(s).map(k => esc(PARTS[k].short)).join(' + ')}</p>
           <div class="meta"><span>${this._locText(s)}</span></div>
           <div class="meta"><span>Fuel <b>${(PH.fuelFraction(s) * 100).toFixed(0)}%</b></span><span>Hull <b>${(s.hull * 100).toFixed(0)}%</b></span><span>Top speed <b>${s.maxBeta < 0.001 ? (s.maxBeta * C / 1000).toFixed(1) + ' km/s' : s.maxBeta.toFixed(3) + 'c'}</b></span><span>τ <b>${UI.fmtTime(s.tau)}</b></span></div>
         </div>
         <div class="acts">
           <button class="btn" data-act="fly" data-id="${s.id}">${act ? 'Launch' : 'Take helm'}</button>
-          ${docked ? `<button class="btn amber" data-act="refit" data-id="${s.id}" ${cost < 1e-4 || g.credits < cost ? 'disabled' : ''}>Refuel · ${UI.fmtMoney(cost)}</button>` : ''}
+          ${docked ? `<button class="btn amber" data-act="refit" data-id="${s.id}" ${cost < 1e-4 || g.credits < cost ? 'disabled' : ''}>Refuel · ${UI.fmtMoney(cost)}</button><button class="btn ghost" data-act="redesign" data-id="${s.id}">Refit modules</button>` : ''}
           ${!docked && inSol ? `<button class="btn ghost" data-act="tow" data-id="${s.id}" ${g.credits < 0.2 ? 'disabled' : ''}>Tug home · $200M</button>` : ''}
           <button class="btn ghost" data-act="scrap" data-id="${s.id}">${this._confirm === 'scrap' + s.id ? 'Confirm scrap' : 'Scrap'}</button>
         </div></div>`;
@@ -607,40 +608,86 @@ export class UI {
   _yardHTML() {
     const g = this.api.game;
     const sel = this.sel;
+    const refit = sel.refitId ? g.fleet.find(x => x.id === sel.refitId) : null;
+    if (sel.refitId && !refit) sel.refitId = null;
+    if (refit) sel.engine = refit.engine;
     if (!g.unlocked.includes(sel.engine)) sel.engine = 'chem';
     const E = ENGINES[sel.engine];
-    if (!E.configs.includes(sel.config)) sel.config = E.configs[0];
-    const st = this.shipStats(sel.engine, sel.config);
-    let h = `<span class="lbl">Propulsion</span><div class="enginelist" style="margin-top:6px">`;
-    for (const k of ENGINE_ORDER) {
-      const e = ENGINES[k], un = g.unlocked.includes(k);
-      h += `<button class="eng ${k === sel.engine ? 'sel' : ''} ${un ? '' : 'locked'}" data-eng="${k}"><b style="color:${un ? e.color : 'inherit'}">${esc(e.name)}</b><span>${un ? UI.fmtMoney(e.cost) : '🔒 research ' + UI.fmtMoney(e.research)}</span></button>`;
+    // drop modules this drive cannot carry
+    sel.parts = sel.parts.filter(k => !PARTS[k].needs || E.configs.includes(PARTS[k].needs));
+    const st = this.shipStats(sel.engine, sel.parts);
+    const sp = st.spec;
+    const problems = PH.designProblems(sel.engine, sel.parts);
+    let h = '';
+    if (refit) h += `<div class="row active"><div><h5>Refitting ${esc(refit.name)}</h5><p>Change its modules. You pay for added modules plus 10% yard labour; removed modules refund 30%.</p></div><div class="acts"><button class="btn ghost" data-act="cancelrefit">Cancel refit</button></div></div>`;
+    else {
+      h += `<span class="lbl">1 · Drive section</span><div class="enginelist" style="margin-top:6px">`;
+      for (const k of ENGINE_ORDER) {
+        const e = ENGINES[k], un = g.unlocked.includes(k);
+        h += `<button class="eng ${k === sel.engine ? 'sel' : ''} ${un ? '' : 'locked'}" data-eng="${k}"><b style="color:${un ? e.color : 'inherit'}">${esc(e.name)}</b><span>${un ? UI.fmtMoney(e.cost) : '🔒 research ' + UI.fmtMoney(e.research)}</span></button>`;
+      }
+      h += `</div>`;
+      h += `<p class="blurb">${esc(E.blurb)}</p>`;
+      if (E.key === 'amed') h += `<div class="amedphases"><div class="a"><b>PHASE 1 · 0 → 0.15c</b>Orion fusion start. Ramscoop off, D/Li-6 pellets detonate against the pusher plate.</div><div class="c"><b>PHASE 2 · 0.15c → 0.50c+</b>Antimatter ram cruise. Scooped hydrogen self-compresses, nanogram antimatter sparks, forge harvests deuterium.</div><div class="v"><b>PHASE 3 · 0.50c → 0</b>Magnetic parachute to ~0.10c, then flip-and-burn on forged pellets.</div></div>`;
+    }
+
+    // ── module stack (bow first) ──
+    h += `<div class="designhead"><span class="lbl">2 · Modules, bow to stern</span><span class="presets">Presets: ${E.configs.map(c => `<button class="chip" data-preset="${c}">${esc(CONFIGS[c].name)}</button>`).join('')}<button class="chip" data-preset="clear">Clear</button></span></div>`;
+    h += `<ol class="stack">`;
+    for (let i = sel.parts.length - 1; i >= 0; i--) {
+      const p = PARTS[sel.parts[i]];
+      const m = p.tank ? E.fuel * 0.25 * 0.06 : p.mass;
+      h += `<li><span class="pn">${esc(p.name)}</span><span class="pm num">${p.tank ? '+' + UI.fmtMass(E.fuel * 0.25) + ' prop' : UI.fmtMass(m)}</span>
+        <span class="pb"><button class="mini" data-mv="${i}" data-dir="1" ${i === sel.parts.length - 1 ? 'disabled' : ''} aria-label="Move ${esc(p.name)} toward bow">▲</button><button class="mini" data-mv="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move ${esc(p.name)} toward stern">▼</button><button class="mini x" data-rm="${i}" aria-label="Remove ${esc(p.name)}">✕</button></span></li>`;
+    }
+    h += `<li class="drive"><span class="pn" style="color:${E.color}">${esc(E.name)} drive section</span><span class="pm num">${UI.fmtMass(E.staged ? E.dry + E.stage2.dry : E.dry)}</span><span class="pb"></span></li></ol>`;
+    h += `<span class="lbl">Add module ${sel.parts.length}/${MAX_PARTS}</span><div class="palette">`;
+    for (const k of PART_ORDER) {
+      const p = PARTS[k];
+      const ok = (!p.needs || E.configs.includes(p.needs)) && sel.parts.length < MAX_PARTS;
+      const cost = p.tank ? E.cost * 0.06 : p.cost;
+      h += `<button class="part" data-add="${k}" ${ok ? '' : 'disabled'} title="${esc(p.desc)}"><b>+ ${esc(p.name)}</b><span>${UI.fmtMoney(cost)} · ${p.tank ? '+25% prop' : UI.fmtMass(p.mass)}</span><small>${esc(p.needs && !E.configs.includes(p.needs) ? 'Not available on this drive' : p.desc)}</small></button>`;
     }
     h += `</div>`;
-    h += `<p class="blurb">${esc(E.blurb)}</p><ul class="facts">${E.facts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>`;
-    if (E.key === 'amed') h += `<div class="amedphases"><div class="a"><b>PHASE 1 · 0 → 0.15c</b>Orion fusion start. Ramscoop off, D/Li-6 pellets detonate against the pusher plate.</div><div class="c"><b>PHASE 2 · 0.15c → 0.50c+</b>Antimatter ram cruise. Scooped hydrogen self-compresses, nanogram antimatter sparks, forge harvests deuterium.</div><div class="v"><b>PHASE 3 · 0.50c → 0</b>Magnetic parachute to ~0.10c, then flip-and-burn on forged pellets.</div></div>`;
-    h += `<div style="margin-top:14px"><span class="lbl">Configuration</span><div class="cfgs" style="margin-top:6px">${E.configs.map(c => `<button class="chip ${c === sel.config ? 'on' : ''}" data-cfg="${c}">${esc(CONFIGS[c].name)} · ${esc(CONFIGS[c].desc)}</button>`).join('')}</div></div>`;
+    if (problems.length) h += `<div class="problems">${problems.map(p => `<p>⚠ ${esc(p)}</p>`).join('')}</div>`;
+
+    // ── stats ──
     const ve = E.ve >= 0.01 * C ? (E.ve / C).toFixed(2) + 'c' : (E.ve / 1000).toLocaleString('en-US') + ' km/s';
     const vmax = E.ram ? 'unlimited (ramjet)' : E.warp ? `${E.warp.maxC.toLocaleString('en-US')}c in warp` : (st.phi > 0.01 ? Math.tanh(st.phi).toFixed(3) + 'c' : UI.fmtSpeed(st.dv));
-    h += `<table class="spec"><tbody>
-      <tr><td>Thrust${E.staged ? ' (stage 1 / 2)' : ''}</td><td>${UI.fmtForce(E.thrust)}${E.staged ? ' / ' + UI.fmtForce(E.stage2.thrust) : ''}</td></tr>
+    h += `<span class="lbl" style="display:block;margin-top:14px">3 · Performance</span><table class="spec"><tbody>
+      <tr><td>Ship class</td><td>${esc(CONFIGS[sp.config].name)}${sp.cargo ? ' · freighter ×' + sp.cargo : ''}</td></tr>
+      <tr><td>Crew</td><td>${sp.crew.toLocaleString('en-US')}</td></tr>
+      <tr><td>Thrust${E.staged ? ' (stage 1 / 2)' : ''}</td><td>${UI.fmtForce(E.thrust * sp.thrustMul)}${E.staged ? ' / ' + UI.fmtForce(E.stage2.thrust * sp.thrustMul) : ''}</td></tr>
       <tr><td>Exhaust velocity</td><td>${ve} · Isp ${E.ve >= C * 0.99 ? '3.06×10⁷' : Math.round(E.ve / 9.80665).toLocaleString('en-US')} s</td></tr>
       <tr><td>Wet / dry mass</td><td>${UI.fmtMass(st.wet)} / ${UI.fmtMass(st.dry)}</td></tr>
       <tr><td>Initial acceleration</td><td>${(st.acc / 9.80665).toFixed(st.acc < 0.098 ? 4 : 2)} g</td></tr>
       <tr><td>Propellant Δv (relativistic)</td><td>${UI.fmtSpeed(st.dv)}</td></tr>
       <tr><td>Top speed</td><td>${vmax}</td></tr>
-      <tr><td>Dust-shield rating</td><td>${E.rated >= 0.01 ? E.rated.toFixed(2) + 'c' : UI.fmtSpeed(E.rated * C)}</td></tr>
+      <tr><td>Dust-shield rating</td><td>${sp.rated >= 0.01 ? sp.rated.toFixed(3) + 'c' : UI.fmtSpeed(sp.rated * C)}</td></tr>
       <tr><td>Propellant</td><td>${esc(E.fuelName)}${E.fuel2Name ? ' + ' + esc(E.fuel2Name) : ''}</td></tr>
-      <tr><td>Crew</td><td>${CONFIGS[sel.config].crew.toLocaleString('en-US')}</td></tr>
-      <tr><td><b>Build cost</b></td><td><b>${UI.fmtMoney(st.cost)}</b></td></tr>
+      <tr><td><b>${refit ? 'Refit cost' : 'Build cost'}</b></td><td><b>${UI.fmtMoney(refit ? this._refitPrice(refit, sp) : st.cost)}</b></td></tr>
     </tbody></table>`;
-    const n = g.fleet.filter(s => s.engine === sel.engine).length + 1;
-    const defName = `${E.short.charAt(0) + E.short.slice(1).toLowerCase()} ${['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][n - 1] || n}`;
-    h += `<label class="field"><span class="lbl">Ship name</span><input id="shipName" value="${esc(sel.name || defName)}" maxlength="28"></label>
-      <button class="btn" data-act="build" ${g.credits < st.cost || !g.unlocked.includes(sel.engine) ? 'disabled' : ''}>Commission · ${UI.fmtMoney(st.cost)}</button>
-      ${g.credits < st.cost ? `<span class="tag am" style="margin-left:8px">Need ${UI.fmtMoney(st.cost - g.credits)} more</span>` : ''}`;
-    this._defName = defName;
+    if (refit) {
+      const price = this._refitPrice(refit, sp);
+      h += `<button class="btn" data-act="applyrefit" ${problems.length || g.credits < price ? 'disabled' : ''}>Apply refit · ${UI.fmtMoney(price)}</button>`;
+    } else {
+      const n = g.fleet.filter(s => s.engine === sel.engine).length + 1;
+      const defName = `${E.short.charAt(0) + E.short.slice(1).toLowerCase()} ${['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][n - 1] || n}`;
+      h += `<label class="field"><span class="lbl">Ship name</span><input id="shipName" value="${esc(sel.name || defName)}" maxlength="28"></label>
+        <button class="btn" data-act="build" ${g.credits < st.cost || !g.unlocked.includes(sel.engine) || problems.length ? 'disabled' : ''}>Commission · ${UI.fmtMoney(st.cost)}</button>
+        ${g.credits < st.cost ? `<span class="tag am" style="margin-left:8px">Need ${UI.fmtMoney(st.cost - g.credits)} more</span>` : ''}`;
+      this._defName = defName;
+    }
     return h;
+  }
+
+  _refitPrice(ship, newSpec) {
+    const old = PH.shipSpec(ship);
+    const E = ENGINES[ship.engine];
+    const partCost = (sp) => sp.cost - E.cost;
+    const add = Math.max(0, partCost(newSpec) - partCost(old));
+    const refund = Math.max(0, partCost(old) - partCost(newSpec)) * 0.3;
+    return Math.max(0, add * 1.1 - refund + 0.05);
   }
 
   _rdHTML() {
@@ -651,7 +698,7 @@ export class UI {
       const un = g.unlocked.includes(k);
       const can = !un && g.credits >= e.research && g.rep >= e.rep;
       h += `<div class="row ${un ? 'done' : ''}"><div><h5 style="color:${e.color}">${esc(e.name)} ${e.speculative ? '<span class="tag vi">SPECULATIVE</span>' : ''}</h5><p>${esc(e.era)}</p>
-        <div class="meta"><span>Δv class <b>${e.ram ? 'ramjet' : e.warp ? 'FTL' : UI.fmtSpeed(PH.deltaVofRapidity(this.shipStats(k, e.configs[0]).phi))}</b></span><span>Ship from <b>${UI.fmtMoney(e.cost)}</b></span></div></div>
+        <div class="meta"><span>Δv class <b>${e.ram ? 'ramjet' : e.warp ? 'FTL' : UI.fmtSpeed(PH.deltaVofRapidity(this.shipStats(k, ['science']).phi))}</b></span><span>Ship from <b>${UI.fmtMoney(e.cost)}</b></span></div></div>
         <div class="acts">${un ? '<span class="tag gd">RESEARCHED</span>' : `<button class="btn ${can ? '' : 'ghost'}" data-act="research" data-eng="${k}" ${can ? '' : 'disabled'}>Research · ${UI.fmtMoney(e.research)}</button><span class="tag ${g.rep >= e.rep ? 'gd' : 'am'}">Rep ${e.rep} needed</span>`}</div></div>`;
     }
     return h;
@@ -670,7 +717,7 @@ export class UI {
       const reward = c.repeat ? c.reward * Math.pow(0.85, g.done[c.id] || 0) : c.reward;
       h += `<div class="row ${done ? 'done' : ''}"><div><h5>${esc(c.title)} ${c.repeat ? '<span class="tag">REPEATABLE</span>' : ''} ${done ? '<span class="tag gd">DONE</span>' : ''}</h5><p>${esc(c.desc)}</p>
         <div class="meta"><span>${esc(kind)}</span><span>Target <b>${esc(where)}</b></span>${c.config ? `<span>Ship <b>${esc(CONFIGS[c.config].name)}${c.config !== 'ark' ? '+' : ''}</b></span>` : ''}<span>Reward <b style="color:var(--amber)">${UI.fmtMoney(reward)}</b> · +${c.rep} rep</span></div></div>
-        <div class="acts">${tb && s && !done ? `<button class="btn ghost" data-act="settgt" data-id="${esc(tb.id)}">Set target</button>` : ''}</div></div>`;
+        <div class="acts">${tb && s && !done ? `<button class="btn" data-act="settgt" data-cid="${esc(c.id)}" data-id="${esc(tb.id)}">Set target & fly</button>${s.ap.target === tb.id ? '<span class="tag cy">CURRENT TARGET</span>' : ''}${c.config && !this._fits(c, s) ? `<span class="tag am">${esc(s.name)} can't take this</span>` : ''}` : ''}</div></div>`;
     }
     return h;
   }
@@ -685,14 +732,25 @@ export class UI {
   }
 
   _hqChange(e) {}
+  _keepScroll() { const b = $('hqBody'), y = b.scrollTop; this.renderHQ(); b.scrollTop = y; }
+  _fits(c, ship) {
+    const cfg = PH.shipSpec(ship).config;
+    if (!c.config || c.config === 'probe') return true;
+    if (c.config === 'explorer') return cfg === 'explorer' || cfg === 'ark';
+    return cfg === c.config;
+  }
 
   _hqClick(e) {
     const g = this.api.game;
     const eng = e.target.closest('[data-eng]');
-    const cfg = e.target.closest('[data-cfg]');
     const actEl = e.target.closest('[data-act]');
-    if (eng && !actEl) { this.sel.engine = eng.dataset.eng; this.sel.name = ''; if (!g.unlocked.includes(this.sel.engine)) { this.toast(`${ENGINES[this.sel.engine].name} needs research first (R&D tab)`, 'warn'); } this.renderHQ(); return; }
-    if (cfg) { this.sel.config = cfg.dataset.cfg; this.renderHQ(); return; }
+    const t = (sel) => e.target.closest(sel);
+    if (eng && !actEl) { this.sel.engine = eng.dataset.eng; this.sel.name = ''; if (!g.unlocked.includes(this.sel.engine)) { this.toast(`${ENGINES[this.sel.engine].name} needs research first (R&D tab)`, 'warn'); } this._keepScroll(); return; }
+    const P = this.sel.parts;
+    if (t('[data-add]')) { if (P.length < MAX_PARTS) { const k = t('[data-add]').dataset.add; const ci = P.lastIndexOf('cmd'); if (k !== 'cmd' && k !== 'shield' && ci >= 0 && ci === P.length - 1) P.splice(ci, 0, k); else P.push(k); } this._keepScroll(); return; }
+    if (t('[data-rm]')) { P.splice(+t('[data-rm]').dataset.rm, 1); this._keepScroll(); return; }
+    if (t('[data-mv]')) { const i = +t('[data-mv]').dataset.mv, j = i + +t('[data-mv]').dataset.dir; if (j >= 0 && j < P.length) [P[i], P[j]] = [P[j], P[i]]; this._keepScroll(); return; }
+    if (t('[data-preset]')) { const k = t('[data-preset]').dataset.preset; this.sel.parts = k === 'clear' ? [] : DEFAULT_PARTS[k].slice(); this._keepScroll(); return; }
     if (!actEl) return;
     const act = actEl.dataset.act;
     const ship = actEl.dataset.id ? g.fleet.find(s => s.id === actEl.dataset.id) : null;
@@ -703,22 +761,22 @@ export class UI {
         const cost = this.refitCost(ship); if (g.credits < cost) return;
         g.credits -= cost;
         const E = ENGINES[ship.engine];
-        ship.fuel = E.fuel; ship.fuel2 = E.staged ? E.stage2.fuel : (E.fuel2 || 0); ship.stage = 1; ship.hull = 1; ship._hullWarned = false;
+        ship.fuel = PH.fuelCapacity(ship); ship.fuel2 = E.staged ? E.stage2.fuel : (E.fuel2 || 0); ship.stage = 1; ship.hull = 1; ship._hullWarned = false;
         this.toast(`${ship.name} refuelled and repaired`, 'good'); break;
       }
       case 'tow': g.credits -= 0.2; this.api.placeAtShipyard(ship); this.toast(`${ship.name} towed to the shipyard`); break;
       case 'scrap': {
         if (this._confirm !== 'scrap' + ship.id) { this._confirm = 'scrap' + ship.id; break; }
         this._confirm = null;
-        const E = ENGINES[ship.engine]; g.credits += (E.cost + CONFIGS[ship.config].cost) * 0.3;
+        g.credits += PH.shipSpec(ship).cost * 0.3;
         g.fleet = g.fleet.filter(s => s !== ship); if (g.activeId === ship.id) g.activeId = g.fleet[0] ? g.fleet[0].id : null;
         this.toast(`${ship.name} scrapped (30% recovered)`); break;
       }
       case 'build': {
-        const st = this.shipStats(this.sel.engine, this.sel.config);
-        if (g.credits < st.cost) return;
+        const st = this.shipStats(this.sel.engine, this.sel.parts);
+        if (g.credits < st.cost || PH.designProblems(this.sel.engine, this.sel.parts).length) return;
         g.credits -= st.cost;
-        const s = PH.newShip(this.sel.engine, this.sel.config, (this.sel.name || this._defName).trim() || this._defName);
+        const s = PH.newShip(this.sel.engine, 'probe', (this.sel.name || this._defName).trim() || this._defName, this.sel.parts);
         s.built = g.t;
         this.api.placeAtShipyard(s);
         g.fleet.push(s); g.activeId = s.id; this.sel.name = '';
@@ -732,7 +790,30 @@ export class UI {
         this.toast(`${E.name} researched — now available in the Shipyard`, 'good');
         this.sel.engine = k; break;
       }
-      case 'settgt': { const s = this.api.activeShip(); if (s) { s.ap.target = actEl.dataset.id; s.ap.mode = 'off'; s.ap.plan = null; this.toast('Target set: ' + PH.bodyById(s.ap.target).name); } break; }
+      case 'settgt': {
+        const s = this.api.activeShip();
+        if (!s) { this.toast('Build or select a ship first', 'warn'); break; }
+        const c = CONTRACTS.find(x => x.id === actEl.dataset.cid);
+        s.ap.target = actEl.dataset.id; s.ap.mode = 'off'; s.ap.plan = null;
+        this.toggleHQ(false);
+        const need = c && c.config && !this._fits(c, s) ? ` — note: ${s.name} is not a ${CONFIGS[c.config].name}, so this contract won't pay out` : '';
+        this.toast(`Target set: ${PH.bodyById(s.ap.target).name}. Press 5 (Go to · Orbit) to fly there${need}`, need ? 'warn' : 'good');
+        return;
+      }
+      case 'redesign': this.sel.refitId = ship.id; this.sel.engine = ship.engine; this.sel.parts = PH.partsFor(ship).slice(); this.tab = 'yard'; break;
+      case 'cancelrefit': this.sel.refitId = null; break;
+      case 'applyrefit': {
+        const r = g.fleet.find(x => x.id === this.sel.refitId);
+        if (!r || r.status !== 'docked') { this.toast('Ships can only be refitted while docked at the shipyard', 'warn'); break; }
+        const sp = PH.specOf(r.engine, this.sel.parts);
+        const price = this._refitPrice(r, sp);
+        if (g.credits < price || PH.designProblems(r.engine, this.sel.parts).length) return;
+        g.credits -= price;
+        r.parts = this.sel.parts.slice(); r.config = PH.shipSpec(r).config;
+        r.fuel = Math.min(r.fuel, PH.fuelCapacity(r));
+        this.sel.refitId = null; this.tab = 'fleet';
+        this.toast(`${r.name} refitted: ${CONFIGS[r.config].name}`, 'good'); break;
+      }
       case 'optics': g.settings.relOptics = !g.settings.relOptics; break;
       case 'bloom': g.settings.bloom = !g.settings.bloom; this.api.setBloom(g.settings.bloom); break;
       case 'reset':

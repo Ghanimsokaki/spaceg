@@ -7,7 +7,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { C, G, AU, LY, YEAR, DAY, ENGINES, CONFIGS, SYSTEMS, SYS_BY_ID, CONTRACTS, START_CREDITS } from './data.js';
+import { C, G, AU, LY, YEAR, DAY, ENGINES, CONFIGS, SYSTEMS, SYS_BY_ID, CONTRACTS, START_CREDITS, DEFAULT_PARTS } from './data.js';
 import * as PH from './physics.js';
 import { buildShip } from './shipModels.js';
 import { Universe, LensShader } from './universe.js';
@@ -130,10 +130,11 @@ let view = null, viewKey = '';
 const shipRoot = new THREE.Group();
 scene.add(shipRoot);
 function ensureView(ship) {
-  const key = ship.id + ship.engine + ship.config;
+  const parts = PH.partsFor(ship);
+  const key = ship.id + ship.engine + parts.join(',');
   if (key === viewKey) return;
   if (view) shipRoot.remove(view.root);
-  view = buildShip(ship.engine, ship.config);
+  view = buildShip(ship.engine, ship.config, parts);
   shipRoot.add(view.root);
   view.root.traverse(o => o.layers.set(1));
   viewKey = key;
@@ -143,15 +144,28 @@ function ensureView(ship) {
   sun.shadow.camera.updateProjectionMatrix();
 }
 let hangarView = null, hangarKey = '';
-function setHangarModel(engine, config) {
-  const key = engine + config;
+function setHangarModel(engine, parts) {
+  if (typeof parts === 'string') parts = DEFAULT_PARTS[parts];
+  const key = engine + '|' + parts.join(',');
   if (key === hangarKey) return;
+  const keepDist = hangarView && hangarKey.split('|')[0] === engine;
   if (hangarView) hangar.remove(hangarView.root);
-  hangarView = buildShip(engine, config);
+  hangarView = buildShip(engine, PH.specOf(engine, parts).config, parts);
   hangarView.root.rotation.x = 0;
   hangar.add(hangarView.root);
   hangarKey = key;
-  hcam.dist = hangarView.camDist * 1.4;
+  // frame the whole ship (solid parts only; effect volumes are huge and invisible)
+  const box = new THREE.Box3(), tmpB = new THREE.Box3();
+  hangarView.root.updateMatrixWorld(true);
+  hangarView.root.traverse(o => {
+    if (!o.isMesh || o.material.isShaderMaterial || o.material.blending === THREE.AdditiveBlending) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    tmpB.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); box.union(tmpB);
+  });
+  const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+  hangarView.root.position.copy(c).negate();
+  const want = Math.max(size.x, size.y, size.z) * (window.innerWidth > 900 ? 2.3 : 1.6) + 40;
+  if (!keepDist || hcam.dist < want * 0.6 || hcam.dist > want * 1.8) hcam.dist = want;
 }
 
 // ── camera ───────────────────────────────────────────────────────────────────
@@ -479,8 +493,9 @@ function stepShip(ship, dt, realDtPart) {
   // ── hull erosion above shield rating
   const b2 = PH.len(v) / C;
   ship.maxBeta = Math.max(ship.maxBeta, b2);
-  if (b2 > E.rated && !ship.warpOn) {
-    const over = b2 / E.rated - 1;
+  const rated = PH.shipSpec(ship).rated;
+  if (b2 > rated && !ship.warpOn) {
+    const over = b2 / rated - 1;
     ship.hull -= over * 4 * dt / YEAR;
     if (!ship._hullWarned && ship.hull < 0.6) { ship._hullWarned = true; ui.toast('Hull erosion critical — interstellar dust exceeding shield rating!', 'warn'); }
     if (ship.hull <= 0) { destroyShip(ship, 'shredded by interstellar dust at ' + (b2 * 100).toFixed(1) + '% c'); return out; }
@@ -550,6 +565,7 @@ function onDocked(ship) {
 }
 
 function contractSatisfied(c, ship) {
+  ship.config = PH.shipSpec(ship).config;
   if (!c.config) return true;
   if (c.config === 'probe') return true;
   if (c.config === 'explorer') return ship.config === 'explorer' || ship.config === 'ark';
@@ -557,7 +573,8 @@ function contractSatisfied(c, ship) {
 }
 function completeContract(c, ship) {
   G_.done[c.id] = (G_.done[c.id] || 0) + 1;
-  const reward = c.repeat ? c.reward * Math.pow(0.85, G_.done[c.id] - 1) : c.reward;
+  let reward = c.repeat ? c.reward * Math.pow(0.85, G_.done[c.id] - 1) : c.reward;
+  if (c.repeat) reward *= 1 + 0.25 * PH.shipSpec(ship).cargo;
   G_.credits += reward; G_.rep += c.rep;
   ui.contractToast(c, reward, ship);
   save();
@@ -631,8 +648,8 @@ const ui = new UI({
   activeShip, setAP, setWarp: (i) => setWarp(i), get warpIdx() { return warpIdx; }, WARPS,
   get effWarp() { return G_ ? G_.effWarp : 1; }, get warpLimitedBy() { return warpLimitedBy; },
   get fx() { return lastFx; }, get accel() { return accelNow; },
-  newGame: (name) => { G_ = freshGame(name); const s = PH.newShip('chem', 'probe', 'Kestrel I'); G_.fleet.push(s); G_.activeId = s.id; placeAtShipyard(s); save(); return G_; },
-  loadGame: () => { G_ = load(); if (G_) { G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; }); } return G_; },
+  newGame: (name) => { G_ = freshGame(name); const s = PH.newShip('chem', 'probe', 'Kestrel I', ['science']); G_.fleet.push(s); G_.activeId = s.id; placeAtShipyard(s); save(); return G_; },
+  loadGame: () => { G_ = load(); if (G_) { G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
   hasSave: () => !!load(),
   save, placeAtShipyard, universe, setHangarModel, hcam,
   flyShip: (id) => { G_.activeId = id; save(); },
@@ -711,7 +728,7 @@ let idleT = 0;
 function renderIdle(rdt) {
   // title screen: slow orbit around an AMED in deep space
   idleT += rdt;
-  if (!hangarView || hangarKey !== 'amedexplorer') setHangarModel('amed', 'explorer');
+  if (!hangarView) setHangarModel('amed', 'explorer');
   const ghost = { sys: 'sol', p: [AU * 3, AU * 0.4, AU * 2], u: [0, 0, 0], q: [0, 0, 0, 1], velocity: [0, 0, 0], fwd: [0, 0, 1], warpOn: false };
   if (!view || viewKey !== 'title') {
     if (view) shipRoot.remove(view.root);

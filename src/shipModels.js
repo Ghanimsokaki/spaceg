@@ -171,38 +171,76 @@ function radiatorMaterial() {
   return new THREE.MeshStandardMaterial({ envMapIntensity: 0.5, map: t.map, bumpMap: t.bumpMap, bumpScale: 1, emissiveMap: t.emissiveMap, emissive: 0xffffff, emissiveIntensity: 0, metalness: 0.6, roughness: 0.55, side: THREE.DoubleSide });
 }
 
-// ── payload modules ──────────────────────────────────────────────────────────
-function payloadModule(config, z, s, parts) {
+// ── modular parts stack ──────────────────────────────────────────────────────
+// Parts are stacked forward (+Z) from each drive's mount point. `s` scales the
+// modules to the drive's size. Returns a group; records its length on P.stackLen.
+let STACK = ['science'];
+function payloadModule(_config, z0, s, P) {
   const g = new THREE.Group();
   const b = new Builder();
-  if (config === 'probe') {
-    b.box(5 * s, 5 * s, 6 * s, 0, 0, z + 3 * s, mat('gold'));
-    b.lathe([[0.2, 0], [3.5, 1.4], [3.6, 1.5]].map(([r, zz]) => [r * s, zz * s]), mat('metal'), { z: z + 6 * s });
-    b.strut([0, 0, z + 6 * s], [0, 0, z + 9 * s], 0.15 * s, mat('metal'));
-    b.strut([2.5 * s, 0, z + 2 * s], [9 * s, 0, z + 2 * s], 0.08 * s, mat('metal'));
-  } else if (config === 'explorer') {
-    b.cyl(6 * s, 6 * s, 16 * s, z + 8 * s, mat('hull', [3, 1]));
-    b.lathe([[6, 0], [5.5, 2], [3, 4.5], [1.6, 5]].map(([r, zz]) => [r * s, zz * s]), mat('hull', [3, 1]), { z: z + 16 * s });
-    b.torus(6.05 * s, 0.25 * s, z + 13 * s, mat('window'), { seg: 64, tseg: 6 });
-    if (s >= 0.55) {
-      const ring = habitatRing(24 * s, 2.8 * s, 4, 6.2 * s, 6 * s);
-      ring.position.z = z + 6 * s;
-      g.add(ring);
-      parts.rings.push({ obj: ring, dir: 1 });
-    } else {
-      b.ring(6.2 * s, 4, (x, y, a) => b.box(3 * s, 0.15 * s, 9 * s, x * 1.6, y * 1.6, z + 6 * s, mat('solar'), a + Math.PI / 2));
-      b.ring(6.2 * s, 4, (x, y) => b.strut([x * 0.9, y * 0.9, z + 6 * s], [x * 1.15, y * 1.15, z + 6 * s], 0.15 * s, mat('metal')));
+  let z = z0;
+  const parts = STACK;
+  parts.forEach((k, idx) => {
+    const last = idx === parts.length - 1;
+    const adapter = () => { b.cyl(3.2 * s, 3.2 * s, 1.2 * s, z + 0.6 * s, mat('darkMetal')); z += 1.2 * s; };
+    adapter();
+    if (k === 'cmd') {
+      b.cyl(6 * s, 6 * s, 9 * s, z + 4.5 * s, mat('hull', [3, 1]));
+      b.cyl(6.05 * s, 6.05 * s, 0.6 * s, z + 2 * s, mat('accent', [3, 0.1]));
+      b.ring(6.06 * s, 12, (x, y, a) => { if (y > -2 * s) b.box(1.1 * s, 0.5 * s, 0.05, x, y, z + 6.5 * s, mat('window'), a + Math.PI / 2); });
+      b.ring(6.2 * s, 4, (x, y) => b.box(0.9 * s, 0.9 * s, 0.9 * s, x, y, z + 8 * s, mat('darkMetal')));
+      z += 9 * s;
+      if (last) { b.lathe([[6, 0], [5.4, 2.4], [3.2, 5], [1.4, 6.2], [0.1, 6.5]].map(([r, zz]) => [r * s, zz * s]), mat('hull', [3, 1]), { z }); z += 6.5 * s; }
+      else { b.torus(3 * s, 0.4 * s, z, mat('metal')); }
+    } else if (k === 'science') {
+      b.box(5 * s, 5 * s, 6 * s, 0, 0, z + 3 * s, mat('gold'));
+      b.strut([2.5 * s, 0, z + 2 * s], [9 * s, 0, z + 2 * s], 0.08 * s + 0.02, mat('metal'));
+      b.box(0.4 * s, 4 * s, 3 * s, -3 * s, 0, z + 3 * s, mat('solar'));
+      z += 6 * s;
+      if (last) { b.lathe([[0.2, 0], [3.5, 1.4], [3.6, 1.5]].map(([r, zz]) => [r * s, zz * s]), mat('metal'), { z }); b.strut([0, 0, z], [0, 0, z + 3 * s], 0.15 * s, mat('metal')); z += 3 * s; }
+    } else if (k === 'hab') {
+      b.cyl(5.5 * s, 5.5 * s, 14 * s, z + 7 * s, mat('hullDark', [3, 2]));
+      const R = Math.max(24 * s, 14), tube = Math.max(2.8 * s, 1.5);
+      const ring = habitatRing(R, tube, 4, 6 * s, 6 * s);
+      ring.position.z = z + 7 * s; g.add(ring);
+      P.rings.push({ obj: ring, dir: P.rings.length % 2 ? -1 : 1 });
+      z += 14 * s;
+    } else if (k === 'colony') {
+      b.cyl(9 * s, 9 * s, 50 * s, z + 25 * s, mat('hull', [4, 3]));
+      b.ring(16 * s, 6, (x, y) => b.tank(5 * s, 18 * s, x, y, z + 25 * s, mat('hullDark', [2, 2])));
+      for (const [dz, dir] of [[10, 1], [40, -1]]) {
+        const r = habitatRing(60 * s, 5 * s, 6, 9.4 * s, 8 * s, { domes: true }); r.position.z = z + dz * s; g.add(r);
+        P.rings.push({ obj: r, dir });
+      }
+      z += 50 * s;
+    } else if (k === 'tank') {
+      b.tank(6 * s, 16 * s, 0, 0, z + 14 * s, mat(idx % 2 ? 'gold' : 'hull', [3, 2]));
+      b.torus(6.05 * s, 0.3 * s, z + 9 * s, mat('accent', [3, 1]), { seg: 48, tseg: 6 });
+      b.torus(6.05 * s, 0.3 * s, z + 19 * s, mat('accent', [3, 1]), { seg: 48, tseg: 6 });
+      b.cyl(2 * s, 2 * s, 4 * s, z + 2 * s, mat('metal'));
+      z += 28 * s;
+    } else if (k === 'cargo') {
+      b.cyl(2.2 * s, 2.2 * s, 20 * s, z + 10 * s, mat('darkMetal'));
+      b.ring(5.6 * s, 4, (x, y, a) => b.box(5 * s, 5 * s, 18 * s, x, y, z + 10 * s, mat(idx % 2 ? 'accent' : 'hullDark', [1, 2]), a));
+      z += 20 * s;
+    } else if (k === 'shield') {
+      b.cyl(14 * s, 14 * s, 1.2 * s, z + 0.6 * s, mat('tungsten'), { seg: 64 });
+      b.cyl(13 * s, 13 * s, 1.6 * s, z + 2 * s, mat('frost'), { seg: 64 });
+      b.torus(14 * s, 0.4 * s, z + 1.2 * s, mat('metal'), { seg: 96 });
+      z += 3 * s;
+    } else if (k === 'radiator') {
+      b.cyl(2.5 * s, 2.5 * s, 18 * s, z + 9 * s, mat('darkMetal'));
+      const rm = radiatorMaterial(); P.radMats.push(rm);
+      b.ring(1, 4, (cx, cy, a) => { const gg = new THREE.BoxGeometry(24 * s, 0.3 * s + 0.1, 16 * s); gg.translate(14.5 * s, 0, 0); gg.rotateZ(a + Math.PI / 4); gg.translate(0, 0, z + 9 * s); b.put(gg, rm); });
+      z += 18 * s;
+    } else if (k === 'truss') {
+      b.truss(z, z + 16 * s, 3 * s, 0.25 * s + 0.05, mat('metal'), 4);
+      b.cyl(0.9 * s, 0.9 * s, 16 * s, z + 8 * s, mat('darkMetal'), { seg: 10 });
+      z += 16 * s;
     }
-  } else if (config === 'ark') {
-    b.cyl(9 * s, 9 * s, 50 * s, z + 25 * s, mat('hull', [4, 3]));
-    b.lathe([[9, 0], [8, 3], [4, 7], [2, 8]].map(([r, zz]) => [r * s, zz * s]), mat('hull', [3, 1]), { z: z + 50 * s });
-    b.ring(16 * s, 6, (x, y) => b.tank(5 * s, 18 * s, x, y, z + 25 * s, mat('hullDark', [2, 2])));
-    const r1 = habitatRing(60 * s, 5 * s, 6, 9.4 * s, 8 * s, { domes: true }); r1.position.z = z + 10 * s;
-    const r2 = habitatRing(60 * s, 5 * s, 6, 9.4 * s, 8 * s, { domes: true }); r2.position.z = z + 40 * s;
-    g.add(r1, r2);
-    parts.rings.push({ obj: r1, dir: 1 }, { obj: r2, dir: -1 });
-  }
+  });
   b.finalize(g);
+  P.stackLen = (P.stackLen || 0) + (z - z0);
   return g;
 }
 
@@ -399,6 +437,7 @@ function buildDaedalus(config) {
   b.finalize(root);
   const ex2 = makeExhaust({ length: 160, r0: 13, r1: 22, core: '#f4ecff', edge: '#9b5cff', fall: 1.3 });
   ex2.position.z = 6; ex2.userData.stage2 = true; root.add(ex2); P.plumes2 = [ex2];
+  root.add(payloadModule(null, 85.3, 0.7, P));
   P.lights = navLights(b, [[16.4, 0, 85, 'navGreen'], [-16.4, 0, 85, 'navRed']]);
   P.lights.forEach(l => root.add(l));
   return { root, parts: P, length: 190, radius: 110, camDist: 280 };
@@ -541,12 +580,7 @@ function buildAMED(config) {
   }
   root.add(plate); P.plate = plate;
 
-  root.add(payloadModule(config === 'ark' ? 'ark-amed' : 'none', 0, 1, P));
-  if (config === 'ark' || config === 'explorer') {
-    const cb = new Builder();
-    cb.ring(13, 6, (x, y) => cb.tank(3.4, 14, x, y, 112, mat(config === 'ark' ? 'hull' : 'hullDark', [1, 1])));
-    cb.finalize(root);
-  }
+  root.add(payloadModule(null, 212, 1, P));
   // fields & exhaust
   const fRam = makeField({ rFar: 1100, rNear: 72, length: 2200, color: '#2fe6ff', flow: 0.8 }); fRam.position.z = 206; root.add(fRam); P.fields.push({ obj: fRam, kind: 'ram' });
   const fSail = makeField({ rFar: 6000, rNear: 72, length: 3600, color: '#b06bff', flow: 0.2 }); fSail.position.z = 206; root.add(fSail); P.fields.push({ obj: fSail, kind: 'sail' });
@@ -659,7 +693,7 @@ function buildWarp(config) {
   }));
   bubble.scale.set(1, 1, 1.4); bubble.visible = false; root.add(bubble); P.bubble = bubble;
   for (const x of [8, -8]) { const ex = makeExhaust({ length: 110, r0: 3, r1: 9, core: '#ffffff', edge: '#7aa8ff' }); ex.position.set(x, 0, -73); root.add(ex); P.plumes.push(ex); }
-  root.add(payloadModule(config === 'probe' ? 'probe' : 'none', 90, 0.8, P));
+  root.add(payloadModule(null, 90, 0.8, P));
   P.lights = navLights(b, [[76, 0, 8, 'navGreen'], [-76, 0, 8, 'navRed'], [0, 0, 91, 'navWhite']]);
   P.lights.forEach(l => root.add(l));
   return { root, parts: P, length: 170, radius: 120, camDist: 300 };
@@ -668,8 +702,11 @@ function buildWarp(config) {
 const BUILDERS = { chem: buildChem, ntr: buildNTR, ion: buildIon, orion: buildOrion, daedalus: buildDaedalus, bussard: buildBussard, amed: buildAMED, antimatter: buildAntimatter, blackhole: buildBlackHole, warp: buildWarp };
 
 // ─────────────────────────────────────────────────────────────────────────────
-export function buildShip(engine, config) {
+export function buildShip(engine, config, stackParts = null) {
+  STACK = stackParts || { probe: ['science'], explorer: ['hab', 'cmd'], ark: ['colony', 'cmd'] }[config] || ['science'];
   const model = BUILDERS[engine](config);
+  const extra = model.parts.stackLen || 0;
+  model.length += extra; model.camDist += extra * 0.7; model.radius = Math.max(model.radius, model.length * 0.55);
   const { root, parts } = model;
   root.traverse(o => { if (o.isMesh && !o.material.isShaderMaterial && !o.material.isMeshBasicMaterial) { o.castShadow = true; o.receiveShadow = true; } });
   let pulseTimer = 0, time = 0, plateOff = 0, plateVel = 0, irisOpen = 0, stageDrift = null;

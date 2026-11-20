@@ -305,3 +305,22 @@ export const CONTRACTS = [
 
 export const START_CREDITS = 6; // $B
 export const START_YEAR = 2150;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SHIP PARTS — stacked forward of the drive section in the Shipyard designer.
+//  mass: kg (fixed) · crew · cost: $B · needs: config the engine must allow
+// ─────────────────────────────────────────────────────────────────────────────
+export const PARTS = {
+  cmd:      { key: 'cmd', name: 'Command module', short: 'CMD', mass: 25000, crew: 6, cost: 0.3, len: 14, desc: 'Flight deck for a crew of 6.' },
+  science:  { key: 'science', name: 'Science bus', short: 'SCI', mass: 5000, crew: 0, cost: 0.1, len: 10, desc: 'Sensors and high-gain antenna. The minimum payload for a probe.' },
+  hab:      { key: 'hab', name: 'Habitat ring', short: 'HAB', mass: 250000, crew: 24, cost: 2.5, len: 14, needs: 'explorer', desc: 'Rotating 0.8 g ring for 24 crew. Makes the ship an Explorer.' },
+  colony:   { key: 'colony', name: 'Colony module', short: 'COLONY', mass: 1.8e7, crew: 1200, cost: 35, len: 52, needs: 'ark', desc: 'Twin rings, bio-domes and cargo for 1,200 colonists. Makes the ship a Colony Ark.' },
+  tank:     { key: 'tank', name: 'Extra propellant tank', short: 'TANK', tank: 0.25, cost: 0, len: 22, desc: '+25% of the drive’s propellant. Tank structure adds 6% of that mass.' },
+  cargo:    { key: 'cargo', name: 'Cargo pods', short: 'CARGO', mass: 400000, crew: 0, cost: 1.0, len: 20, desc: '+25% reward on repeatable contracts (up to 4 pods).' },
+  shield:   { key: 'shield', name: 'Dust shield', short: 'SHIELD', mass: 60000, crew: 0, cost: 1.0, len: 3, desc: 'Beryllium & ice erosion shield. Raises the safe cruise speed.' },
+  radiator: { key: 'radiator', name: 'Radiator array', short: 'RAD', mass: 30000, crew: 0, cost: 0.5, len: 18, desc: 'Dumps waste heat: +8% thrust each (up to 3).' },
+  truss:    { key: 'truss', name: 'Truss spacer', short: 'TRUSS', mass: 5000, crew: 0, cost: 0.02, len: 16, desc: 'Structural spacer. Keeps modules clear of the drive.' },
+};
+export const PART_ORDER = ['cmd', 'science', 'hab', 'colony', 'tank', 'cargo', 'shield', 'radiator', 'truss'];
+export const MAX_PARTS = 8;
+export const DEFAULT_PARTS = { probe: ['science'], explorer: ['hab', 'cmd'], ark: ['colony', 'cmd'] };

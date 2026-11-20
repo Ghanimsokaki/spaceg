@@ -4,7 +4,7 @@
 //  Ship state uses *proper velocity* u = γv so |v| can never exceed c.
 // ─────────────────────────────────────────────────────────────────────────────
 import * as THREE from 'three';
-import { C, G, AU, LY, RHO_ISM, ENGINES, CONFIGS, SYSTEMS, SYS_BY_ID } from './data.js';
+import { C, G, AU, LY, RHO_ISM, ENGINES, CONFIGS, SYSTEMS, SYS_BY_ID, PARTS, DEFAULT_PARTS, MAX_PARTS } from './data.js';
 
 // ── tiny vector helpers on [x,y,z] arrays ────────────────────────────────────
 export const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -68,56 +68,103 @@ export function gravityAt(p, states, exclude = null) {
 export const globalPos = (sys, p) => add(sys.pos, p);
 
 // ── ship construction ────────────────────────────────────────────────────────
+// A ship = a drive section + an ordered stack of parts. Everything physical
+// (dry mass, propellant capacity, thrust, shield rating, crew, class, cost)
+// is derived from that design by shipSpec().
+export function partsFor(ship) {
+  return Array.isArray(ship.parts) ? ship.parts : DEFAULT_PARTS[ship.config] || DEFAULT_PARTS.probe;
+}
+export function specOf(engine, parts) {
+  const E = ENGINES[engine];
+  let payload = 0, crew = 0, tanks = 0, cargo = 0, shields = 0, rads = 0, partCost = 0;
+  for (const k of parts) {
+    const p = PARTS[k]; if (!p) continue;
+    if (p.tank) { tanks++; partCost += E.cost * 0.06; continue; }
+    payload += p.mass; crew += p.crew; partCost += p.cost;
+    if (k === 'cargo') cargo++;
+    if (k === 'shield') shields++;
+    if (k === 'radiator') rads++;
+  }
+  const extraFuel = E.fuel * 0.25 * tanks;
+  const fuelCap = E.fuel + extraFuel;
+  const tankDry = extraFuel * 0.06;
+  let rated = E.rated;
+  for (let i = 0; i < shields; i++) rated = Math.min(0.995, rated + (1 - rated) * 0.15);
+  const config = parts.includes('colony') ? 'ark' : parts.includes('hab') ? 'explorer' : 'probe';
+  return {
+    engine, parts, payload: payload + tankDry, crew, fuelCap, rated, config,
+    dry: (E.staged ? E.stage2.dry : E.dry) + payload + tankDry,
+    thrustMul: 1 + 0.08 * Math.min(rads, 3), cargo: Math.min(cargo, 4),
+    cost: E.cost + partCost,
+  };
+}
+export function shipSpec(ship) {
+  const parts = partsFor(ship);
+  const key = ship.engine + '|' + parts.join(',');
+  if (ship._specKey !== key || !ship._spec) {
+    Object.defineProperty(ship, '_spec', { value: specOf(ship.engine, parts), writable: true, configurable: true, enumerable: false });
+    Object.defineProperty(ship, '_specKey', { value: key, writable: true, configurable: true, enumerable: false });
+  }
+  return ship._spec;
+}
+export function designProblems(engine, parts) {
+  const E = ENGINES[engine], out = [];
+  if (!parts.length) out.push('Add at least one module — a probe needs a Science bus or Command module.');
+  if (!parts.some(k => k === 'cmd' || k === 'science' || k === 'hab' || k === 'colony')) out.push('Needs a Command module, Science bus, Habitat ring or Colony module to control the ship.');
+  if (parts.length > MAX_PARTS) out.push(`At most ${MAX_PARTS} modules.`);
+  for (const k of new Set(parts)) { const p = PARTS[k]; if (p.needs && !E.configs.includes(p.needs)) out.push(`${E.name} cannot carry a ${p.name}.`); }
+  return out;
+}
+
 let shipSerial = 1;
-export function newShip(engineKey, configKey, name) {
+export function newShip(engineKey, configKey, name, parts = null) {
   const E = ENGINES[engineKey];
   const ship = {
     id: 'S' + Date.now().toString(36) + (shipSerial++),
     name, engine: engineKey, config: configKey,
+    parts: parts ? parts.slice() : DEFAULT_PARTS[configKey].slice(),
     sys: 'sol', p: [0, 0, 0], u: [0, 0, 0],
     q: [0, 0, 0, 1],
-    fuel: E.fuel, fuel2: E.stage2 ? E.stage2.fuel : (E.fuel2 || 0),
+    fuel: 0, fuel2: E.stage2 ? E.stage2.fuel : (E.fuel2 || 0),
     stage: 1, tau: 0, hull: 1, throttle: 0,
     magsail: false, ram: true, warpOn: false, warpC: 50,
     status: 'docked', orbiting: null, maxBeta: 0, trips: 0,
-    ap: { mode: 'off', target: null, cruise: Math.min(E.rated * 0.97, 0.99) },
+    ap: { mode: 'off', target: null, cruise: 0.5 },
     built: 0,
   };
+  const sp = shipSpec(ship);
+  ship.config = sp.config;
+  ship.fuel = sp.fuelCap;
+  ship.ap.cruise = Math.min(sp.rated * 0.97, 0.99);
   return ship;
 }
 
 export function shipMass(ship) {
-  const E = ENGINES[ship.engine], CF = CONFIGS[ship.config];
-  if (E.staged) {
-    const s2 = E.stage2;
-    return CF.payload + s2.dry + ship.fuel2 + (ship.stage === 1 ? E.dry + ship.fuel : 0);
-  }
+  const E = ENGINES[ship.engine], sp = shipSpec(ship);
+  if (E.staged) return sp.dry + ship.fuel2 + (ship.stage === 1 ? E.dry + ship.fuel : 0);
   const f2 = ship.engine === 'amed' ? ship.fuel2 : 0;
-  return E.dry + CF.payload + ship.fuel + f2;
+  return sp.dry + ship.fuel + f2;
 }
-export function shipDryMass(ship) {
-  const E = ENGINES[ship.engine], CF = CONFIGS[ship.config];
-  if (E.staged) return CF.payload + E.stage2.dry;
-  return E.dry + CF.payload;
-}
+export function shipDryMass(ship) { return shipSpec(ship).dry; }
+export function fuelCapacity(ship) { return shipSpec(ship).fuelCap; }
 export function fuelFraction(ship) {
-  const E = ENGINES[ship.engine];
-  if (E.staged) return (ship.fuel + ship.fuel2) / (E.fuel + E.stage2.fuel);
-  return ship.fuel / E.fuel;
+  const E = ENGINES[ship.engine], cap = shipSpec(ship).fuelCap;
+  if (E.staged) return (ship.fuel + ship.fuel2) / (cap + E.stage2.fuel);
+  return ship.fuel / cap;
 }
 
 // Rapidity available from rocket propellant (Δφ = ve/c · ln(m0/m1))
 export function rapidityAvailable(ship) {
-  const E = ENGINES[ship.engine], CF = CONFIGS[ship.config];
+  const E = ENGINES[ship.engine], dry = shipSpec(ship).dry;
   if (E.staged) {
     const s2 = E.stage2;
     let phi = 0;
     if (ship.stage === 1) {
-      const m0 = CF.payload + s2.dry + ship.fuel2 + E.dry + ship.fuel;
+      const m0 = dry + ship.fuel2 + E.dry + ship.fuel;
       phi += (E.ve / C) * Math.log(m0 / (m0 - ship.fuel));
     }
-    const m0b = CF.payload + s2.dry + ship.fuel2;
-    phi += (s2.ve / C) * Math.log(m0b / (CF.payload + s2.dry));
+    const m0b = dry + ship.fuel2;
+    phi += (s2.ve / C) * Math.log(m0b / dry);
     return phi;
   }
   const m = shipMass(ship);
@@ -127,8 +174,9 @@ export const deltaVofRapidity = (phi) => C * Math.tanh(phi);
 
 export function rocketParams(ship) {
   const E = ENGINES[ship.engine];
-  if (E.staged && ship.stage === 2) return { F: E.stage2.thrust, ve: E.stage2.ve, fuelKey: 'fuel2' };
-  return { F: E.thrust, ve: E.ve, fuelKey: 'fuel' };
+  const mul = shipSpec(ship).thrustMul;
+  if (E.staged && ship.stage === 2) return { F: E.stage2.thrust * mul, ve: E.stage2.ve, fuelKey: 'fuel2' };
+  return { F: E.thrust * mul, ve: E.ve, fuelKey: 'fuel' };
 }
 
 // Ram-scoop thrust (Bussard/AMED): mass flux γρAv heated by fusion energy fraction ε
@@ -290,7 +338,7 @@ export function engineOutput(ship, dtau, beta, vhat, fwd) {
         const g = 1 / Math.sqrt(1 - beta * beta);
         const mdot = g * RHO_ISM * E.ram.area * beta * C;
         const add_ = mdot * E.ram.forge * dtau;
-        ship.fuel = Math.min(E.fuel, ship.fuel + add_);
+        ship.fuel = Math.min(shipSpec(ship).fuelCap, ship.fuel + add_);
         out.forge = mdot * E.ram.forge;
       }
       break;
