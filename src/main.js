@@ -27,14 +27,15 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 1e13);
 const hemi = new THREE.HemisphereLight(0x8fa6d0, 0x15151c, 0.3);
-scene.add(hemi);
+scene.add(hemi); hemi.layers.enable(1);
 const sun = new THREE.DirectionalLight(0xffffff, 3);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.6;
 scene.add(sun, sun.target);
+sun.layers.enable(1); sun.shadow.camera.layers.enable(1);
 const fill = new THREE.DirectionalLight(0x6f8fc0, 0.25);
-scene.add(fill);
+scene.add(fill); fill.layers.enable(1);
 
 const universe = new Universe(scene);
 
@@ -81,6 +82,12 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const lensPass = new ShaderPass(LensShader);
 composer.addPass(lensPass);
+// the player's ship lives on layer 1 and is drawn after lensing so it is never distorted
+const shipCam = camera.clone();
+shipCam.layers.set(1);
+const shipPass = new RenderPass(scene, shipCam);
+shipPass.clear = false; shipPass.clearDepth = true;
+composer.addPass(shipPass);
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.85, 0.55, 0.78);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -128,6 +135,7 @@ function ensureView(ship) {
   if (view) shipRoot.remove(view.root);
   view = buildShip(ship.engine, ship.config);
   shipRoot.add(view.root);
+  view.root.traverse(o => o.layers.set(1));
   viewKey = key;
   cam.dist = view.camDist;
   const r = view.radius * 1.3;
@@ -384,7 +392,7 @@ function stepShip(ship, dt, realDtPart) {
         const soi = PH.hillRadius(s.b) * 0.5;
         if (r > soi) continue;
         const tOut = !tState || PH.len(PH.sub(tState.p, s.p)) > soi;
-        if (tOut && (!dep || r < dep.r)) dep = { b: s.b, v: s.v, r, inSOI: true, g: PH.gravityAt(ship.p, [s]) };
+        if (tOut && (!dep || r < dep.r)) dep = { b: s.b, v: s.v, p: s.p, r, inSOI: true, g: PH.gravityAt(ship.p, [s]) };
       }
       env.nearestMassive = dep;
       if (central) {
@@ -678,6 +686,7 @@ function frame(now) {
     lensPass.uniforms.uThetaE.value = L.thetaE; lensPass.uniforms.uShadow.value = L.shadow;
     lensPass.uniforms.uAspect.value = camera.aspect; lensPass.uniforms.uTanHalf.value = Math.tan(camera.fov * Math.PI / 360);
   } else lensPass.uniforms.uOn.value = 0;
+  syncShipCam();
   composer.render();
   ui.updateHUD(ship, camera);
   saveTimer += rdt; if (saveTimer > 15) { saveTimer = 0; save(); }
@@ -706,6 +715,7 @@ function renderIdle(rdt) {
   if (!view || viewKey !== 'title') {
     if (view) shipRoot.remove(view.root);
     view = buildShip('amed', 'explorer'); shipRoot.add(view.root); viewKey = 'title';
+    view.root.traverse(o => o.layers.set(1));
     const r = view.radius * 1.3; Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 4 * r + 2000 }); sun.shadow.camera.updateProjectionMatrix();
   }
   const D = 640;
@@ -716,7 +726,13 @@ function renderIdle(rdt) {
   const ld = sun.position.clone().normalize(); sun.position.copy(ld.multiplyScalar(view.radius * 2 + 400));
   view.update(rdt, { firing: true, throttle: 0.8, phase: 'P2', ram: true, pulse: false });
   lensPass.uniforms.uOn.value = 0;
+  syncShipCam();
   composer.render();
+}
+function syncShipCam() {
+  shipCam.position.copy(camera.position); shipCam.quaternion.copy(camera.quaternion);
+  shipCam.projectionMatrix.copy(camera.projectionMatrix); shipCam.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+  shipCam.updateMatrixWorld();
 }
 
 // debug/testing hook

@@ -399,9 +399,9 @@ export function milkyWayTexture() {
   for (let j = 0; j < H; j++) {
     const b = (0.5 - j / H) * Math.PI;
     for (let i = 0; i < W; i++) {
-      const l = (i / W) * Math.PI * 2;
+      const l = (i / W) * Math.PI * 2 - Math.PI; // seam at the anticentre, galactic centre mid-texture
       const px = Math.cos(b) * Math.cos(l), py = Math.cos(b) * Math.sin(l), pz = Math.sin(b);
-      const ld = Math.min(l, Math.PI * 2 - l); // angular distance from galactic centre in longitude
+      const ld = Math.abs(l); // angular distance from galactic centre in longitude
       const width = 0.10 + 0.10 * Math.exp(-ld * ld * 1.2);
       let band = Math.exp(-(b * b) / (width * width));
       const bulge = Math.exp(-(ld * ld) / 0.25 - (b * b) / 0.05) * 1.6;
@@ -419,6 +419,8 @@ export function milkyWayTexture() {
   x.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  t.wrapS = THREE.RepeatWrapping;
   return t;
 }
 

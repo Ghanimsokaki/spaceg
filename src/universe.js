@@ -108,7 +108,7 @@ export class Universe {
   _buildMilkyWay() {
     const M = new THREE.Matrix3().set(...EQ2GAL[0], ...EQ2GAL[1], ...EQ2GAL[2]);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { tMW: { value: milkyWayTexture() }, uM: { value: M }, uBeta: { value: this.beta }, uExp: { value: 0.55 } },
+      uniforms: { tMW: { value: milkyWayTexture() }, uM: { value: M }, uBeta: { value: this.beta }, uExp: { value: 0.3 } },
       vertexShader: `varying vec3 vDir;
         #include <common>
         #include <logdepthbuf_pars_vertex>
@@ -125,7 +125,7 @@ export class Universe {
             n = c*bh + sqrt(max(0.0,1.0-c*c))*perp; float g = 1.0/sqrt(1.0-b*b); D = 1.0/(g*(1.0-b*cp)); }
           vec3 eq = vec3(n.x, -n.z, n.y); vec3 gal = uM * eq;
           float lon = atan(gal.y, gal.x); float lat = asin(clamp(gal.z,-1.0,1.0));
-          vec2 uv = vec2(fract(lon/6.2831853), 0.5 + lat/3.14159265);
+          vec2 uv = vec2(fract(lon/6.2831853 + 0.5), 0.5 + lat/3.14159265);
           vec3 col = texture2D(tMW, uv).rgb;
           float boost = pow(D, 2.5);
           vec3 shift = D > 1.0 ? mix(vec3(1.0), vec3(0.65,0.8,1.3), clamp((D-1.0)*0.6,0.0,1.0)) : mix(vec3(1.0), vec3(1.4,0.6,0.3), clamp((1.0-D)*1.5,0.0,1.0));
@@ -133,7 +133,7 @@ export class Universe {
         }`,
       side: THREE.BackSide, depthWrite: false, depthTest: false,
     });
-    this.mw = new THREE.Mesh(new THREE.SphereGeometry(1e12, 64, 32), mat);
+    this.mw = new THREE.Mesh(new THREE.SphereGeometry(1e4, 64, 32), mat);
     this.mw.renderOrder = -10; this.mw.frustumCulled = false;
     this.sky.add(this.mw);
   }
@@ -192,7 +192,7 @@ export class Universe {
           float core = smoothstep(0.18, 0.0, r);
           gl_FragColor = vec4((vCol + core) * a, a);
         }`,
-      transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
     });
   }
 
@@ -396,7 +396,7 @@ export class Universe {
           float dop = 1.0 + 0.75 * dot(normalize(vTan), normalize(vVw)) * w;
           vec3 col = blackbody(T * dop) * pow(dop, 3.0);
           float a = smoothstep(0.0, 0.04, x) * smoothstep(1.0, 0.55, x) * (0.55 + n*0.45) * streak * uI;
-          gl_FragColor = vec4(col * a * 2.2, a);
+          gl_FragColor = vec4(col * a * 1.25, a);
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
@@ -488,8 +488,8 @@ export class Universe {
         v.obj.scale.setScalar(1);
         v.mesh.scale.setScalar(b.radius * k);
         const ang = b.radius / d;
-        v.glow.scale.setScalar(Math.max(b.radius * k * 9, rd * 0.012 * Math.min(1, Math.sqrt(b.temp / 6000))));
-        v.glow.material.opacity = Math.min(1, 0.6 + ang * 50);
+        v.glow.scale.setScalar(Math.max(b.radius * k * (ang > 0.02 ? 3.2 : 9), rd * 0.012 * Math.min(1, Math.sqrt(b.temp / 6000))));
+        v.glow.material.opacity = ang > 0.02 ? 0.5 : Math.min(1, 0.6 + ang * 50);
         v.mat.uniforms.uTime.value = this.time;
         // light from the brightest star
         const L = (b.radius / RSUN) ** 2 * (b.temp / 5772) ** 4;
@@ -526,7 +526,7 @@ export class Universe {
     // stars in current system point light direction for ship
     if (lightDir) {
       light.position.set(lightDir[0], lightDir[1], lightDir[2]).multiplyScalar(1000);
-      light.intensity = 3.2 * Math.min(1.6, Math.max(0.04, Math.pow(lightI, 0.35)));
+      light.intensity = 3.0 * Math.min(1.15, Math.max(0.05, Math.pow(lightI, 0.3)));
     } else {
       light.intensity = 0.3;
     }

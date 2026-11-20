@@ -12,6 +12,16 @@ async function build() {
   const html = readFileSync('src/index.html', 'utf8').replace('<script type="module">/*__BUNDLE__*/</script>', () => `<script>${js}</script>`);
   writeFileSync('index.html', html);
   console.log(`index.html written (${(html.length / 1024).toFixed(0)} KB)`);
+  // Optional: a fragment without the document wrapper, for hosts that supply their own skeleton
+  const out = process.env.FRAGMENT_OUT;
+  if (out) {
+    const frag = html
+      .replace(/<!DOCTYPE html>\s*/i, '').replace(/<html[^>]*>\s*/i, '').replace(/<\/html>\s*$/i, '')
+      .replace(/<head>\s*/i, '').replace(/<\/head>\s*/i, '').replace(/<body>\s*/i, '').replace(/<\/body>\s*/i, '')
+      .replace(/<meta charset="UTF-8">\s*/i, '').replace(/<meta name="viewport"[^>]*>\s*/i, '');
+    writeFileSync(out, frag);
+    console.log(`fragment written to ${out}`);
+  }
 }
 await build();
 if (watch) {

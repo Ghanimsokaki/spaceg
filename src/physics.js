@@ -397,21 +397,42 @@ export function planTransfer(ship, target, t, states) {
   return { kind: 'lambert', tDep: t + pick.td, tArr: t + pick.td + pick.T, T: pick.T, dv: pick.dv, centralId: central.id, legTarget: target.id, short: pick.dv > dvAvail };
 }
 
-// Leaving a planet: burn prograde until the orbit is hyperbolic, then aim the
-// excess velocity along the wanted asymptote (patched-conic departure).
-function escapeVelocity(v, dep, vWantGlobal, fallbackDir) {
+// Leaving a planet (patched conic). Coast in the parking orbit until the point
+// where a prograde burn puts the departure hyperbola's asymptote along the wanted
+// excess velocity, burn prograde until the energy is reached, then coast out.
+function rotateAbout(v, n, ang) {
+  const c = Math.cos(ang), s = Math.sin(ang);
+  return add(add(mul(v, c), mul(cross(n, v), s)), mul(n, dot(n, v) * (1 - c)));
+}
+function escapePlan(ship, v, dep, vWantGlobal, amax) {
   const mu = G * dep.b.mass;
-  const vrel = sub(v, dep.v);
-  const vr = len(vrel);
-  const eps = vr * vr / 2 - mu / dep.r;
-  const vinf = sub(vWantGlobal, dep.v);
+  const rrel = sub(ship.p, dep.p), r = len(rrel);
+  const vrel = sub(v, dep.v), vr = len(vrel);
+  const eps = vr * vr / 2 - mu / r;
+  let vinf = sub(vWantGlobal, dep.v);
   const vi = len(vinf);
-  if (eps < 0.15 * Math.min(vi * vi / 2, 2e7)) {
-    const pro = vr > 1 ? mul(vrel, 1 / vr) : fallbackDir;
-    return add(dep.v, mul(pro, vr + 3000));
-  }
-  const need = Math.sqrt(vi * vi + 2 * mu / dep.r);
-  return add(dep.v, mul(vi > 1 ? mul(vinf, 1 / vi) : fallbackDir, need));
+  const ap = ship.ap;
+  if (eps >= 0.5 * vi * vi * 0.98) { ap._escBurn = false; return { coast: true, dir: norm(vrel) }; }
+  const n = norm(cross(rrel, vrel));
+  vinf = sub(vinf, mul(n, dot(vinf, n)));
+  const vih = norm(vinf);
+  const e = 1 + r * vi * vi / mu;
+  const nuInf = Math.acos(-1 / e);
+  const rb = rotateAbout(vih, n, -nuInf);         // where the burn should be centred
+  const rh = mul(rrel, 1 / r);
+  let togo = Math.atan2(dot(cross(rh, rb), n), dot(rh, rb));
+  if (togo < 0) togo += Math.PI * 2;
+  const dvNeed = Math.max(0, Math.sqrt(vi * vi + 2 * mu / r) - vr);
+  const tb = dvNeed / Math.max(amax, 1e-9);
+  const omega = vr / r;
+  const period = 2 * Math.PI / omega;
+  const lead = 0.5 * tb * omega;
+  const pro = vr > 1 ? mul(vrel, 1 / vr) : norm(vinf);
+  if (tb > 0.25 * period) ap._escBurn = true;    // low-thrust: spiral out continuously
+  const start = togo - lead;
+  if (!ap._escBurn && (start < 0.06 || start > Math.PI * 2 - 0.02)) ap._escBurn = true;
+  if (ap._escBurn) return { coast: false, v: add(dep.v, mul(pro, vr + Math.max(dvNeed, 50) * 2)), burning: true };
+  return { coast: true, dir: pro, wait: (start / omega) };
 }
 
 // highest speed (m/s) from which the ship can still stop within distance d
@@ -449,6 +470,8 @@ export function autopilot(ship, t, states, dt, env) {
 
   const E = ENGINES[ship.engine];
   const sysCur = SYS_BY_ID[ship.sys];
+  const rpNow = rocketParams(ship);
+  const amaxNow = (ship[rpNow.fuelKey] > 0 ? rpNow.F : 0) / shipMass(ship);
   const sameSys = target.sys === sysCur;
   const u = sub(v, sameSys ? rel.vb : [0, 0, 0]);
   const dist = len(rel.r);
@@ -482,11 +505,13 @@ export function autopilot(ship, t, states, dt, env) {
         const sol = lambert(sub(ship.p, cs.p), sub(tb.p, ct.p), ap.plan.tArr - t, G * central.mass);
         if (sol) {
           let vreq = add(sol.v1, cs.v);
-          // escaping a departure planet's well: aim for hyperbolic excess
+          // escaping a departure planet's well: time the burn in the parking orbit
           const dep = env.nearestMassive;
           if (dep && dep.b !== central && dep.b !== leg && dep.inSOI) {
-            vreq = escapeVelocity(v, dep, vreq, norm(sub(vreq, dep.v)));
+            const esc = escapePlan(ship, v, dep, vreq, amaxNow);
             ap.escaping = true;
+            if (esc.coast) { ap.phaseLabel = esc.wait ? 'DEPARTURE BURN IN ' + Math.ceil(esc.wait / 60) + ' MIN' : 'ESCAPING ' + dep.b.name.toUpperCase(); res.thr = 0; res.dir = esc.dir; return res; }
+            vreq = esc.v;
           } else ap.escaping = false;
           vdes = sub(vreq, sameSys ? rel.vb : [0, 0, 0]);
           // vdes currently expressed in frame of target; convert back below
@@ -516,8 +541,10 @@ export function autopilot(ship, t, states, dt, env) {
       const dep = env.nearestMassive;
       if (dep && dep.inSOI) {
         const frame = sameSys ? rel.vb : [0, 0, 0];
-        vdes = sub(escapeVelocity(v, dep, add(vdes, frame), rhat), frame);
-        ap.phaseLabel = 'ESCAPE ' + dep.b.name.toUpperCase();
+        const esc = escapePlan(ship, v, dep, add(vdes, frame), amaxNow);
+        if (esc.coast) { ap.phaseLabel = esc.wait ? 'DEPARTURE BURN IN ' + Math.ceil(esc.wait / 60) + ' MIN' : 'ESCAPING ' + dep.b.name.toUpperCase(); res.thr = 0; res.dir = esc.dir; return res; }
+        vdes = sub(esc.v, frame);
+        ap.phaseLabel = 'ESCAPE BURN';
       }
     }
   }
