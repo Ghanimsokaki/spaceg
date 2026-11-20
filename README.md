@@ -60,6 +60,23 @@ Autopilot to Proxima b takes about 15.6 Earth-years, or 14.7 years of ship time.
 
 Easiest start: the Moon is pre-targeted. Press **5**, then raise time warp with **.**
 
+## Deploy to Vercel
+
+The repo is set up for Vercel with no extra configuration (`vercel.json`). Vercel runs `npm install` and `npm run build`, then serves the static `dist/` folder.
+
+1. Push this repo to GitHub.
+2. On vercel.com, choose **Add New → Project**, import the repo, and press **Deploy**. The framework preset is ignored because `vercel.json` sets the build itself.
+
+Or, from the command line:
+
+```bash
+npm i -g vercel
+vercel          # preview deployment
+vercel --prod   # production
+```
+
+Any other static host (Netlify, GitHub Pages, Cloudflare Pages) works the same way: build command `npm run build`, output directory `dist`.
+
 ## Development
 
 ```bash
