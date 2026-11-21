@@ -10,7 +10,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { C, G, AU, LY, YEAR, DAY, ENGINES, CONFIGS, SYSTEMS, SYS_BY_ID, CONTRACTS, START_CREDITS, DEFAULT_PARTS } from './data.js';
 import * as PH from './physics.js';
 import { buildShip } from './shipModels.js';
-import { Universe, LensShader } from './universe.js';
+import { Universe, LensShader, RMAX } from './universe.js';
+const renderCompress = (d) => d <= RMAX ? d : RMAX * (1 + Math.log(d / RMAX));
 import { UI } from './ui.js';
 import { Combat, starFlux } from './combat.js';
 import { storage } from './storage.js';
@@ -41,6 +42,53 @@ scene.add(fill); fill.layers.enable(1);
 
 const universe = new Universe(scene);
 const combat = new Combat(scene);
+// predicted ballistic path relative to the local body (cyan), red where it hits the surface
+const predGeo = new THREE.BufferGeometry();
+predGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(301 * 3), 3));
+const predLine = new THREE.Line(predGeo, new THREE.LineBasicMaterial({ color: 0x33e1ff, transparent: true, opacity: 0.55 }));
+predLine.frustumCulled = false; scene.add(predLine);
+const impactMark = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff4d6d }));
+scene.add(impactMark);
+let predTimer = 0;
+function updatePrediction(ship, rdt) {
+  predTimer -= rdt;
+  const v = PH.velOfU(ship.u);
+  const show = G_.settings.showPath !== false && !ship.warpOn && ship.status !== 'docked' && ship.status !== 'landed' && PH.len(v) < 0.02 * C;
+  predLine.visible = show; if (!show) { impactMark.visible = false; return; }
+  if (predTimer > 0) return; predTimer = 0.25;
+  const states = PH.systemState(SYS_BY_ID[ship.sys], G_.t);
+  const ref = refBody(ship.p, states);
+  const mu = G * (ref.b.mass || 0);
+  let r = PH.sub(ship.p, ref.p), w = PH.sub(v, ref.v);
+  const r0 = r.slice();
+  const R = PH.len(r), V2 = PH.dot(w, w);
+  const eps = V2 / 2 - mu / R;
+  let H = eps < 0 ? 2 * Math.PI * Math.sqrt(Math.pow(-mu / (2 * eps), 3) / mu) : 4 * R / Math.sqrt(V2 + 1);
+  H = Math.min(H, 60 * DAY);
+  const N = 300, h = H / N, pos = predGeo.attributes.position;
+  let hit = -1;
+  const put = (i, rr) => { const d = PH.sub(rr, r0); const L = PH.len(d) || 1; const k = renderCompress(L) / L; pos.setXYZ(i, d[0] * k, d[1] * k, d[2] * k); };
+  put(0, r);
+  for (let i = 1; i <= N; i++) {
+    for (let sub = 0; sub < 4; sub++) {   // leapfrog, 4 sub-steps per point
+      const dt4 = h / 4;
+      const rl = PH.len(r); const a = PH.mul(r, -mu / (rl * rl * rl || 1));
+      w = PH.add(w, PH.mul(a, dt4 / 2)); r = PH.add(r, PH.mul(w, dt4));
+      const rl2 = PH.len(r); const a2 = PH.mul(r, -mu / (rl2 * rl2 * rl2 || 1));
+      w = PH.add(w, PH.mul(a2, dt4 / 2));
+    }
+    if (ref.b.radius && PH.len(r) < ref.b.radius) {
+      hit = i;  // the path meets the surface: stop the line there
+      for (let j = i; j <= N; j++) pos.setXYZ(j, pos.getX(i - 1), pos.getY(i - 1), pos.getZ(i - 1));
+      break;
+    }
+    put(i, r);
+  }
+  pos.needsUpdate = true;
+  predLine.material.color.set(hit >= 0 ? 0xff4d6d : 0x33e1ff);
+  impactMark.visible = hit >= 0;
+  if (hit >= 0) { impactMark.position.set(pos.getX(hit - 1), pos.getY(hit - 1), pos.getZ(hit - 1)); impactMark.scale.setScalar(Math.max(50, impactMark.position.length() * 0.004)); }
+}
 
 // Image-based lighting: a dim studio-in-space environment so metals and foils read correctly
 function makeEnvironment() {
@@ -184,7 +232,7 @@ function setHangarModel(engine, parts) {
 }
 
 // ── camera ───────────────────────────────────────────────────────────────────
-const cam = { yaw: 2.4, pitch: 0.28, dist: 300, mode: 'chase', zoom: 1 };
+const cam = { yaw: Math.PI - 0.45, pitch: 0.22, dist: 300, mode: 'chase', zoom: 1 }; // behind the ship: nose points into the screen
 const hcam = { yaw: 0.9, pitch: 0.25, dist: 500, spin: true };
 let dragging = false, lastX = 0, lastY = 0, dragTarget = 'space';
 // one pointer drags the camera; two pointers pinch-zoom (touchscreens)
@@ -246,11 +294,12 @@ window.addEventListener('keydown', (e) => {
   if (k === 'g') stageNow(ship);
   if (k === 'v') toggleWarpDrive(ship);
   if (k === '[') ship.warpC = Math.max(1, Math.round(ship.warpC / 1.5));
-  if (k === ']') ship.warpC = Math.min(ENGINES[ship.engine].warp ? ENGINES[ship.engine].warp.maxC : 1, Math.round(ship.warpC * 1.5 + 1));
+  if (k === ']') { const W = PH.warpSpec(ship); ship.warpC = Math.min(W ? W.maxC : 1, Math.round(ship.warpC * 1.5 + 1)); }
   if (k === 't') ui.cycleTarget(1);
   if (k === 'n') ui.toggleNav();
   if (k === 'm') ui.toggleMap();
   if (k === 'c') cycleCamera();
+  if (k === 'u') { G_.settings.flightAssist = G_.settings.flightAssist === false; ui.toast('Flight assist ' + (G_.settings.flightAssist ? 'ON — the ship goes where the nose points' : 'OFF — pure Newtonian flight')); }
   if (k === 'y') { const d = combat.cycleLock(); if (d) ui.toast('Target lock: drone ' + d.id); }
   if (k === 'j') { ship.fwd = fwdOf(ship); combat.spawn(ship, 3); ui.toast('3 target drones launched ahead of you'); }
   if (k === 'p') { paused = !paused; ui.toast(paused ? 'Paused' : 'Resumed'); }
@@ -275,11 +324,13 @@ function stageNow(ship) {
 }
 function toggleWarpDrive(ship) {
   const E = ENGINES[ship.engine];
-  if (!E.warp) { ui.toast('This ship has no warp ring'); return; }
+  const W = PH.warpSpec(ship);
+  if (!W) { ui.toast('This ship has no warp drive. Add a Warp ring in the Shipyard.'); return; }
   if (ship.warpOn) { ship.warpOn = false; ui.toast('Warp bubble collapsed'); return; }
   const near = nearestStarDist(ship);
-  if (near < E.warp.minAU * AU) { ui.toast(`Too deep in a gravity well: ${(near / AU).toFixed(1)} AU from a star (need ${E.warp.minAU} AU)`, 'warn'); return; }
-  if (ship.fuel2 <= 0) { ui.toast('No exotic matter left', 'warn'); return; }
+  if (near < W.minAU * AU) { ui.toast(`Too deep in a gravity well: ${(near / AU).toFixed(1)} AU from a star (need ${W.minAU} AU)`, 'warn'); return; }
+  if (ship[PH.warpKey(ship)] <= 0) { ui.toast('No exotic matter left', 'warn'); return; }
+  ship.warpC = Math.min(ship.warpC, W.maxC);
   ship.warpOn = true; ship.status = 'flying'; ship.orbiting = null;
   ui.toast(`Warp bubble formed · ${ship.warpC}c`);
 }
@@ -327,6 +378,18 @@ function manualControl(ship, rdt) {
   }
   if (keys.has('shift')) { ship.throttle = Math.min(1, ship.throttle + rdt * 0.6); if (ship.ap.mode === 'approach' || ship.ap.mode === 'flyby') cancelAP(ship); }
   if (keys.has('control')) { ship.throttle = Math.max(0, ship.throttle - rdt * 0.6); if (ship.ap.mode === 'approach' || ship.ap.mode === 'flyby') cancelAP(ship); }
+}
+
+// reference body: the smallest sphere of influence containing the ship (else the star)
+function refBody(p, states) {
+  let best = null, soiBest = Infinity;
+  for (const s of states) {
+    if (s.b.type !== 'planet' && s.b.type !== 'moon') continue;
+    const soi = PH.hillRadius(s.b) * 0.5;
+    if (soi < soiBest && PH.len(PH.sub(p, s.p)) < soi) { best = s; soiBest = soi; }
+  }
+  if (!best) best = states[0];
+  return { b: best.b, p: best.p, v: best.v, g: best.b.mass ? PH.gravityAt(p, [best]) : [0, 0, 0] };
 }
 
 // rotate ship toward direction d at limited rate (rad per step)
@@ -384,7 +447,7 @@ function simulate(ship, realDt) {
     if (lim < dtMax) { dtMax = lim; warpLimitedBy = 'arrival at ' + tb.name; }
   }
   if (ship.warpOn) {
-    const near = nearestStarDist(ship) - ENGINES[ship.engine].warp.minAU * AU;
+    const near = nearestStarDist(ship) - PH.warpSpec(ship).minAU * AU;
     const lim = Math.max(near / (ship.warpC * C) * 0.25, 1);
     if (lim < dtMax) { dtMax = lim; warpLimitedBy = 'warp drop-out'; }
   }
@@ -489,7 +552,7 @@ function stepShip(ship, dt, realDtPart) {
       if (apOut.thr !== null && apOut.thr !== undefined) ship.throttle = rem < 0.12 ? apOut.thr : 0;
       if (E.magsail) ship.magsail = !!apOut.sail;
       if (apOut.warp && !ship.warpOn && rem < 0.02) {
-        if (nearestStarDist(ship) > E.warp.minAU * AU * 1.05) { ship.warpC = E.warp.maxC; ship.warpOn = true; ui.toast(`Warp engaged toward ${tb.sys.name}`); }
+        if (nearestStarDist(ship) > PH.warpSpec(ship).minAU * AU * 1.05) { ship.warpC = PH.warpSpec(ship).maxC; ship.warpOn = true; ui.toast(`Warp engaged toward ${tb.sys.name}`); }
         else { ship.throttle = 1; } // climb out of the well first
       }
       if (ap.mode === 'approach' && !apOut.warp && ship.warpOn) ship.warpOn = false;
@@ -512,19 +575,40 @@ function stepShip(ship, dt, realDtPart) {
   }
   if (out.sail) du = PH.add(du, PH.mul(out.drag, 1 / mNow));
   if (!ship.warpOn) du = PH.add(du, PH.mul(g, gam));
+  // Flight assist: while you throttle manually, vectored thrust + RCS bleed off sideways drift
+  // and cancel the local body's gravity, so the ship travels where the nose points.
+  let assistA = 0;
+  if (G_.settings.flightAssist !== false && ship.ap.mode === 'off' && ship.throttle > 0 && !ship.warpOn && beta < 0.05) {
+    const rp = PH.rocketParams(ship);
+    if (ship[rp.fuelKey] > 0) {
+      const ref = refBody(ship.p, states);
+      const vrel = PH.sub(v, ref.v);
+      const vt = PH.mul(fwd, Math.max(PH.dot(vrel, fwd), 0));
+      const tau = Math.max(dt * 3, 3);
+      let aFix = PH.sub(PH.mul(PH.sub(vt, vrel), 1 / tau), ref.g);
+      const lim = rp.F / mNow * 0.75;
+      const al = PH.len(aFix);
+      if (al > lim) aFix = PH.mul(aFix, lim / al);
+      const dm = Math.min(ship[rp.fuelKey], mNow * PH.len(aFix) * dtau / rp.ve);
+      ship[rp.fuelKey] -= dm;
+      du = PH.add(du, PH.mul(aFix, gam));
+      assistA = PH.len(aFix);
+    }
+  }
   ship.u = PH.add(ship.u, PH.mul(du, dt));
   // stop magsail from reversing the ship
   if (out.sail && PH.dot(ship.u, vhat) < 0 && out.F === 0) ship.u = PH.mul(vhat, 1e-3);
-  accelNow = (out.F + (out.sail ? PH.len(out.drag) : 0)) / mNow;
+  accelNow = (out.F + (out.sail ? PH.len(out.drag) : 0)) / mNow + assistA;
 
   v = PH.velOfU(ship.u);
   if (ship.warpOn) {
     const w = ship.warpC * C;
     ship.p = PH.add(ship.p, PH.mul(fwd, w * dt));
-    ship.fuel2 = Math.max(0, ship.fuel2 - E.warp.perLy * w * dt / LY);
+    const WK = PH.warpKey(ship), WS = PH.warpSpec(ship);
+    ship[WK] = Math.max(0, ship[WK] - WS.perLy * w * dt / LY);
     ship.tau += dt;
-    if (ship.fuel2 <= 0) { ship.warpOn = false; ui.toast('Exotic matter exhausted — dropped out of warp', 'warn'); }
-    if (nearestStarDist(ship) < E.warp.minAU * AU) { ship.warpOn = false; ui.toast('Dropped out of warp at the edge of a gravity well'); }
+    if (ship[WK] <= 0) { ship.warpOn = false; ui.toast('Exotic matter exhausted — dropped out of warp', 'warn'); }
+    if (nearestStarDist(ship) < WS.minAU * AU) { ship.warpOn = false; ui.toast('Dropped out of warp at the edge of a gravity well'); }
   } else {
     ship.p = PH.add(ship.p, PH.mul(v, dt));
     ship.tau += dt / PH.gammaOfU(ship.u);
@@ -669,7 +753,7 @@ function updateCamera(ship, rdt) {
     const bow = new THREE.Vector3(0, view.radius * 0.08, view.length * 0.55).applyQuaternion(qShip);
     camera.position.copy(bow);
     camera.up.set(0, 1, 0).applyQuaternion(qShip);
-    const look = new THREE.Vector3(Math.sin(cam.yaw - 2.4) * 0.6, cam.pitch * 0.5, 1).normalize().applyQuaternion(qShip);
+    const look = new THREE.Vector3(Math.sin(cam.yaw - (Math.PI - 0.45)) * 0.6, (cam.pitch - 0.22) * 0.5, 1).normalize().applyQuaternion(qShip);
     camera.lookAt(bow.clone().add(look.multiplyScalar(1000)));
   } else {
     cineT += rdt * 0.06;
@@ -731,6 +815,7 @@ function refill(s) {
   const E = ENGINES[s.engine];
   s.fuel = PH.fuelCapacity(s); s.fuel2 = E.staged ? E.stage2.fuel : (E.fuel2 || 0); s.stage = 1; s.hull = 1; s._hullWarned = false;
   s.missiles = undefined; s.energy = undefined;
+  const W = PH.warpSpec(s); s.exotic = W && !E.warp ? W.cap : 0;
 }
 function teleport(s, b) {
   if (!b) return;
@@ -778,6 +863,7 @@ function frame(now) {
   ship.velocity = PH.velOfU(ship.u);
   ship.fwd = fwdOf(ship);
   updateCamera(ship, rdt);
+  updatePrediction(ship, rdt);
   universe.relOptics = G_.settings.relOptics;
   universe.update(ship, G_.t, rdt, camera, sun);
   const cRes = combat.update({

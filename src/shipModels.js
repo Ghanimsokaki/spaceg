@@ -181,6 +181,7 @@ function payloadModule(_config, z0, s, P) {
   let z = z0;
   const parts = STACK;
   parts.forEach((k, idx) => {
+    if (k === 'strapon') return;
     const last = idx === parts.length - 1;
     const adapter = () => { b.cyl(3.2 * s, 3.2 * s, 1.2 * s, z + 0.6 * s, mat('darkMetal')); z += 1.2 * s; };
     adapter();
@@ -284,6 +285,16 @@ function payloadModule(_config, z0, s, P) {
         P.missileMounts.push(new THREE.Vector3(x * 1.4, y * 1.4, z + 6 * s));
       });
       z += 12 * s;
+    } else if (k === 'warpring') {
+      b.cyl(3 * s, 3 * s, 10 * s, z + 5 * s, mat('hullDark', [2, 1]));
+      const R = Math.max(34 * s, 22);
+      b.torus(R, 2.4 * s + 0.6, z + 5 * s, mat('darkMetal'), { seg: 128, tseg: 16 });
+      b.ring(1, 4, (cx, cy, a) => { const c = Math.cos(a + Math.PI / 4), sn = Math.sin(a + Math.PI / 4); b.box(R - 3 * s, 1.4 * s, 4 * s, c * (R / 2 + 1.5 * s), sn * (R / 2 + 1.5 * s), z + 5 * s, mat('hull', [2, 1]), a + Math.PI / 4); });
+      const gm = new THREE.MeshStandardMaterial({ color: 0x000814, emissive: 0x5b9bff, emissiveIntensity: 0.5 });
+      const glow = new THREE.Mesh(new THREE.TorusGeometry(R - 2.2 * s, 0.8 * s + 0.2, 10, 128), gm);
+      glow.position.z = z + 5 * s; g.add(glow);
+      P.glowMats.push(gm); P.warpRing = true;
+      z += 10 * s;
     } else if (k === 'truss') {
       b.truss(z, z + 16 * s, 3 * s, 0.25 * s + 0.05, mat('metal'), 4);
       b.cyl(0.9 * s, 0.9 * s, 16 * s, z + 8 * s, mat('darkMetal'), { seg: 10 });
@@ -758,6 +769,49 @@ export function buildShip(engine, config, stackParts = null) {
   const model = BUILDERS[engine](config);
   const extra = model.parts.stackLen || 0;
   model.length += extra; model.camDist += extra * 0.7; model.radius = Math.max(model.radius, model.length * 0.55);
+  // strap-on engines: half-size copies of the drive, evenly spaced around the core
+  const straps = Math.min(4, (stackParts || []).filter(k => k === 'strapon').length);
+  model.sats = [];
+  if (straps && engine !== 'daedalus') {
+    const keep = STACK;
+    let baseR = 0;
+    for (let i = 0; i < straps; i++) {
+      const sat = buildShip(engine, config, []);       // full model (with its own update), no modules
+      baseR = baseR || sat.radius;
+      sat.parts.lights.forEach(l => { l.visible = false; l.userData.off = true; });
+      const a = i / straps * Math.PI * 2 + Math.PI / 4;
+      const R = baseR * 0.62;
+      sat.root.scale.setScalar(0.5);
+      sat.root.position.set(Math.cos(a) * R, Math.sin(a) * R, -model.length * 0.05);
+      const strut = new THREE.Mesh(new THREE.CylinderGeometry(baseR * 0.02 + 0.3, baseR * 0.02 + 0.3, R, 8), mat('metal'));
+      strut.position.set(Math.cos(a) * R / 2, Math.sin(a) * R / 2, 0); strut.rotation.z = a - Math.PI / 2;
+      model.root.add(sat.root, strut);
+      model.sats.push(sat);
+    }
+    STACK = keep;
+    model.radius = Math.max(model.radius, baseR * 0.62 + baseR * 0.5);
+    model.camDist *= 1.25;
+  }
+  // a warp-ring module gets a warp bubble around the whole ship
+  if (model.parts.warpRing && !model.parts.bubble) {
+    const bubble = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.ShaderMaterial({
+      uniforms: { uI: { value: 0 }, uTime: { value: 0 } },
+      vertexShader: `varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        #include <common>
+        #include <logdepthbuf_pars_vertex>
+        void main(){ vec4 mv = modelViewMatrix*vec4(position,1.); vN=normalize(normalMatrix*normal); vV=normalize(-mv.xyz); vP=position; gl_Position=projectionMatrix*mv;
+        #include <logdepthbuf_vertex>
+        }`,
+      fragmentShader: `uniform float uI; uniform float uTime; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        #include <logdepthbuf_pars_fragment>
+        void main(){
+        #include <logdepthbuf_fragment>
+        float f = pow(1.0-abs(dot(normalize(vN),normalize(vV))),3.0); float w = 0.5+0.5*sin(vP.z*12.0 - uTime*6.0); vec3 c = mix(vec3(0.3,0.5,1.0), vec3(0.9,0.6,1.0), w); float a = f*uI*(0.6+0.4*w); gl_FragColor = vec4(c*a, a);}`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }));
+    bubble.scale.set(model.radius * 0.9, model.radius * 0.9, model.length * 0.75);
+    bubble.visible = false; model.root.add(bubble); model.parts.bubble = bubble;
+  }
   const { root, parts } = model;
   root.traverse(o => { if (o.isMesh && !o.material.isShaderMaterial && !o.material.isMeshBasicMaterial) { o.castShadow = true; o.receiveShadow = true; } });
   let pulseTimer = 0, time = 0, plateOff = 0, plateVel = 0, irisOpen = 0, stageDrift = null;
@@ -765,6 +819,7 @@ export function buildShip(engine, config, stackParts = null) {
 
   model.update = (dt, st) => {
     time += dt;
+    for (const sat of model.sats || []) sat.update(dt, { ...st, aimWorld: null });
     // weapon turrets track the locked target (ship-local direction)
     for (const t of parts.turrets) {
       if (st.aimWorld) t.lookAt(st.aimWorld);
@@ -774,7 +829,7 @@ export function buildShip(engine, config, stackParts = null) {
     // habitat rings: ~0.8 g at 56 m radius → ω = sqrt(a/R) ≈ 0.37 rad/s (slowed visually)
     for (const r of parts.rings) r.obj.rotation.z += r.dir * dt * 0.22;
     // nav lights blink
-    parts.lights.forEach((l, i) => { l.visible = ((time + i * 0.37) % 1.6) < 0.15 || l.material.name === 'navWhite' && ((time * 0.8 + i) % 2.2) < 0.08; });
+    parts.lights.forEach((l, i) => { if (l.userData.off) return; l.visible = ((time + i * 0.37) % 1.6) < 0.15 || l.material.name === 'navWhite' && ((time * 0.8 + i) % 2.2) < 0.08; });
     // plumes
     let plumeI = st.firing ? Math.min(1, 0.25 + thr * 0.85) : 0;
     if (st.pulse) plumeI = 0;

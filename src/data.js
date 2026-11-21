@@ -326,9 +326,11 @@ export const PARTS = {
   laser:    { key: 'laser', name: 'Laser turrets', short: 'LASER', mass: 12000, crew: 0, cost: 0.8, len: 9, weapon: 'laser', desc: 'Two turrets. Instant hit, 25 damage, 30 MJ per shot, 30 km range.' },
   railgun:  { key: 'railgun', name: 'Railgun turrets', short: 'RAIL', mass: 30000, crew: 0, cost: 1.5, len: 12, weapon: 'railgun', desc: 'Two turrets. 30 km/s slugs, 70 damage, 120 MJ per shot, 100 km range.' },
   missiles: { key: 'missiles', name: 'Missile pods', short: 'MSL', mass: 20000, crew: 0, cost: 1.0, len: 12, weapon: 'missile', desc: '8 homing missiles, 120 damage, 500 km range. Rearm at the shipyard.' },
+  strapon:  { key: 'strapon', name: 'Strap-on engine', short: 'ENGINE', mass: 0, crew: 0, cost: 0, len: 0, engine: true, desc: 'A half-size copy of your drive bolted to the side: +50% thrust, +50% propellant and drive mass. Use 2, 3 or 4 for balance.' },
+  warpring: { key: 'warpring', name: 'Warp ring', short: 'WARP', mass: 300000, crew: 0, cost: 0, len: 10, warp: true, desc: 'Alcubierre ring for any ship: up to 1,000c with 20 units of exotic matter. Engage 20 AU from any star (V).' },
   truss:    { key: 'truss', name: 'Truss spacer', short: 'TRUSS', mass: 5000, crew: 0, cost: 0.02, len: 16, desc: 'Structural spacer. Keeps modules clear of the drive.' },
 };
-export const PART_ORDER = ['cmd', 'science', 'hab', 'colony', 'tank', 'cargo', 'shield', 'radiator', 'solar', 'reactor', 'capacitor', 'laser', 'railgun', 'missiles', 'truss'];
+export const PART_ORDER = ['strapon', 'warpring', 'cmd', 'science', 'hab', 'colony', 'tank', 'cargo', 'shield', 'radiator', 'solar', 'reactor', 'capacitor', 'laser', 'railgun', 'missiles', 'truss'];
 export const MAX_PARTS = 12;
 export const DEFAULT_PARTS = { probe: ['science'], explorer: ['hab', 'cmd'], ark: ['colony', 'cmd'] };
 

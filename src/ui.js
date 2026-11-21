@@ -287,20 +287,21 @@ export class UI {
     $('gam').textContent = gam < 1.0001 ? (gam - 1 < 1e-9 ? '1.000' : '1 + ' + (gam - 1).toExponential(2)) : gam.toFixed(gam > 10 ? 2 : 4);
     $('acc').textContent = (this.api.accel / G0).toFixed(this.api.accel / G0 < 0.01 ? 4 : 3) + ' g';
     const phi = PH.rapidityAvailable(ship);
-    $('dv').textContent = E.ram ? (E.key === 'amed' ? 'ram ∞ · ' : 'ram ∞ · ') + UI.fmtSpeed(PH.deltaVofRapidity(phi)) : E.warp && ship.warpOn ? 'warp' : UI.fmtSpeed(PH.deltaVofRapidity(phi));
+    $('dv').textContent = E.ram ? 'ram ∞ · ' + UI.fmtSpeed(PH.deltaVofRapidity(phi)) : ship.warpOn ? 'warp' : UI.fmtSpeed(PH.deltaVofRapidity(phi));
     $('mass').textContent = UI.fmtMass(PH.shipMass(ship));
     $('dil').textContent = '1 : ' + gam.toFixed(gam < 1.01 ? 4 : 2);
     const f1 = ship.fuel / PH.fuelCapacity(ship);
     $('f1name').textContent = E.staged ? 'Stage 1' : (E.short === 'AMED' ? 'Pellets' : 'Fuel');
     $('f1').style.width = (f1 * 100) + '%'; $('f1t').textContent = (f1 * 100).toFixed(f1 < 0.1 ? 1 : 0) + '%';
-    const hasF2 = E.staged || E.fuel2;
+    const ringW = PH.warpSpec(ship) && !E.warp;
+    const hasF2 = E.staged || E.fuel2 || ringW;
     $('f2row').hidden = !hasF2;
     if (hasF2) {
-      const cap = E.staged ? E.stage2.fuel : E.fuel2;
-      const f2 = ship.fuel2 / cap;
-      $('f2name').textContent = E.staged ? 'Stage 2' : E.key === 'amed' ? 'Antimatter' : 'Exotic';
+      const cap = ringW ? PH.warpSpec(ship).cap : E.staged ? E.stage2.fuel : E.fuel2;
+      const f2 = (ringW ? ship.exotic || 0 : ship.fuel2) / cap;
+      $('f2name').textContent = ringW ? 'Exotic' : E.staged ? 'Stage 2' : E.key === 'amed' ? 'Antimatter' : 'Exotic';
       $('f2').style.width = (f2 * 100) + '%';
-      $('f2t').textContent = E.key === 'amed' ? (ship.fuel2 * 1000).toFixed(2) + ' g' : E.key === 'warp' ? ship.fuel2.toFixed(1) + ' u' : (f2 * 100).toFixed(0) + '%';
+      $('f2t').textContent = ringW ? (ship.exotic || 0).toFixed(1) + ' u' : E.key === 'amed' ? (ship.fuel2 * 1000).toFixed(2) + ' g' : E.key === 'warp' ? ship.fuel2.toFixed(1) + ' u' : (f2 * 100).toFixed(0) + '%';
     }
     $('hullBar').style.width = Math.max(0, ship.hull * 100) + '%'; $('hullT').textContent = Math.max(0, ship.hull * 100).toFixed(0) + '%';
     $('loc').innerHTML = this._locText(ship);
@@ -400,7 +401,7 @@ export class UI {
     } else if (E.staged) {
       ph = `<span class="phase p1 ${ship.stage === 1 ? 'on' : ''}">STAGE 1</span><span class="phase p2 ${ship.stage === 2 ? 'on' : ''}">STAGE 2</span>`;
       desc = '250 Hz D/He³ pellet detonations';
-    } else if (E.warp) {
+    } else if (PH.warpSpec(ship) && !E.ram && !E.staged && E.key !== 'blackhole' && !E.pulse) {
       ph = `<span class="phase p2 ${ship.warpOn ? 'on' : ''}">WARP ${ship.warpC}c</span>`;
       desc = ship.warpOn ? 'Alcubierre bubble: no time dilation' : 'Engage ≥ 20 AU from any star';
     } else if (E.key === 'blackhole') {
@@ -417,7 +418,9 @@ export class UI {
     if (E.ram) tg += `<button class="chip ${ship.ram ? 'on' : ''}" data-tog="ram">Scoop<kbd>R</kbd></button>`;
     if (E.magsail) tg += `<button class="chip ${ship.magsail ? 'warnon' : ''}" data-tog="sail">Mag-sail<kbd>B</kbd></button>`;
     if (E.staged && ship.stage === 1) tg += `<button class="chip" data-tog="stage">Stage<kbd>G</kbd></button>`;
-    if (E.warp) tg += `<button class="chip ${ship.warpOn ? 'on' : ''}" data-tog="warp">Warp<kbd>V</kbd></button>`;
+    if (PH.warpSpec(ship)) tg += `<button class="chip ${ship.warpOn ? 'on' : ''}" data-tog="warp">Warp ${ship.warpOn ? ship.warpC + 'c' : ''}<kbd>V</kbd></button>`;
+    const fa = this.api.game.settings.flightAssist !== false;
+    tg += `<button class="chip ${fa ? 'on' : ''}" data-tog="assist" title="Flight assist: the ship goes where the nose points">Assist<kbd>U</kbd></button>`;
     tg += `<button class="chip" data-tog="full">Full<kbd>Z</kbd></button><button class="chip" data-tog="cut">Cut<kbd>X</kbd></button>`;
     const box = $('eToggles');
     if (box.dataset.h !== tg) {
@@ -425,6 +428,7 @@ export class UI {
       box.querySelectorAll('[data-tog]').forEach(b => b.onclick = () => {
         const s = this.api.activeShip(); if (!s) return;
         const k = b.dataset.tog;
+        if (k === 'assist') { const gs = this.api.game.settings; gs.flightAssist = gs.flightAssist === false; this.toast('Flight assist ' + (gs.flightAssist ? 'ON — the ship goes where the nose points' : 'OFF — pure Newtonian flight')); }
         if (k === 'ram') s.ram = !s.ram;
         if (k === 'sail') s.magsail = !s.magsail;
         if (k === 'stage') this.api.stageNow();
@@ -740,7 +744,7 @@ export class UI {
     h += `<ol class="stack">`;
     for (let i = sel.parts.length - 1; i >= 0; i--) {
       const p = PARTS[sel.parts[i]];
-      const m = p.tank ? E.fuel * 0.25 * 0.06 : p.mass;
+      const m = p.tank ? E.fuel * 0.25 * 0.06 : p.engine ? E.dry * 0.5 : p.mass;
       h += `<li><span class="pn">${esc(p.name)}</span><span class="pm num">${p.tank ? '+' + UI.fmtMass(E.fuel * 0.25) + ' prop' : UI.fmtMass(m)}</span>
         <span class="pb"><button class="mini" data-mv="${i}" data-dir="1" ${i === sel.parts.length - 1 ? 'disabled' : ''} aria-label="Move ${esc(p.name)} toward bow">▲</button><button class="mini" data-mv="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move ${esc(p.name)} toward stern">▼</button><button class="mini x" data-rm="${i}" aria-label="Remove ${esc(p.name)}">✕</button></span></li>`;
     }
@@ -750,14 +754,14 @@ export class UI {
       const p = PARTS[k];
       const ok = (!p.needs || E.configs.includes(p.needs)) && sel.parts.length < MAX_PARTS;
       const cost = p.tank ? E.cost * 0.06 : p.cost;
-      h += `<button class="part" data-add="${k}" ${ok ? '' : 'disabled'} title="${esc(p.desc)}"><b>+ ${esc(p.name)}</b><span>${UI.fmtCost(cost)} · ${p.tank ? '+25% prop' : UI.fmtMass(p.mass)}</span><small>${esc(p.needs && !E.configs.includes(p.needs) ? 'Not available on this drive' : p.desc)}</small></button>`;
+      h += `<button class="part" data-add="${k}" ${ok ? '' : 'disabled'} title="${esc(p.desc)}"><b>+ ${esc(p.name)}</b><span>${UI.fmtCost(cost)} · ${p.tank ? '+25% prop' : p.engine ? '+' + UI.fmtMass(E.dry * 0.5) + ' · +50% thrust' : UI.fmtMass(p.mass)}</span><small>${esc(p.needs && !E.configs.includes(p.needs) ? 'Not available on this drive' : p.desc)}</small></button>`;
     }
     h += `</div>`;
     if (problems.length) h += `<div class="problems">${problems.map(p => `<p>⚠ ${esc(p)}</p>`).join('')}</div>`;
 
     // ── stats ──
     const ve = E.ve >= 0.01 * C ? (E.ve / C).toFixed(2) + 'c' : (E.ve / 1000).toLocaleString('en-US') + ' km/s';
-    const vmax = E.ram ? 'unlimited (ramjet)' : E.warp ? `${E.warp.maxC.toLocaleString('en-US')}c in warp` : (st.phi > 0.01 ? Math.tanh(st.phi).toFixed(3) + 'c' : UI.fmtSpeed(st.dv));
+    const vmax = sp.warp ? `${sp.warp.maxC.toLocaleString('en-US')}c in warp` : E.ram ? 'unlimited (ramjet)' : (st.phi > 0.01 ? Math.tanh(st.phi).toFixed(3) + 'c' : UI.fmtSpeed(st.dv));
     h += `<span class="lbl" style="display:block;margin-top:14px">3 · Performance</span><table class="spec"><tbody>
       <tr><td>Ship class</td><td>${esc(CONFIGS[sp.config].name)}${sp.cargo ? ' · freighter ×' + sp.cargo : ''}</td></tr>
       <tr><td>Crew</td><td>${sp.crew.toLocaleString('en-US')}</td></tr>

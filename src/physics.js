@@ -77,11 +77,12 @@ export function partsFor(ship) {
 export function specOf(engine, parts) {
   const E = ENGINES[engine];
   let payload = 0, crew = 0, tanks = 0, cargo = 0, shields = 0, rads = 0, partCost = 0;
-  let solarMW = 0, reactorMW = 15, storeMJ = 300, solars = 0;
+  let solarMW = 0, reactorMW = 15, storeMJ = 300, solars = 0, straps = 0;
   const weapons = [];
   for (const k of parts) {
     const p = PARTS[k]; if (!p) continue;
     if (p.tank) { tanks++; partCost += E.cost * 0.06; continue; }
+    if (p.engine) { straps++; continue; }
     payload += p.mass; crew += p.crew; partCost += p.cost;
     if (k === 'cargo') cargo++;
     if (k === 'shield') shields++;
@@ -89,16 +90,19 @@ export function specOf(engine, parts) {
     if (p.power) { solarMW += p.power.solar || 0; reactorMW += p.power.reactor || 0; storeMJ += p.power.store || 0; if (p.power.solar) solars++; }
     if (p.weapon) weapons.push(p.weapon);
   }
+  const cluster = 1 + 0.5 * Math.min(straps, 4);            // strap-ons are half-size drives
   const extraFuel = E.fuel * 0.25 * tanks;
-  const fuelCap = E.fuel + extraFuel;
-  const tankDry = extraFuel * 0.06;
+  const fuelCap = E.fuel * cluster + extraFuel;
+  const tankDry = extraFuel * 0.06 + (E.staged ? 0 : E.dry * 0.5 * Math.min(straps, 4));
   let rated = E.rated;
   for (let i = 0; i < shields; i++) rated = Math.min(0.995, rated + (1 - rated) * 0.15);
   const config = parts.includes('colony') ? 'ark' : parts.includes('hab') ? 'explorer' : 'probe';
   return {
     engine, parts, payload: payload + tankDry, crew, fuelCap, rated, config,
     dry: (E.staged ? E.stage2.dry : E.dry) + payload + tankDry,
-    thrustMul: (1 + 0.08 * Math.min(rads, 3)) * (engine === 'ion' ? 1 + 0.2 * Math.min(solars, 4) : 1), cargo: Math.min(cargo, 4),
+    thrustMul: cluster * (1 + 0.08 * Math.min(rads, 3)) * (engine === 'ion' ? 1 + 0.2 * Math.min(solars, 4) : 1), cargo: Math.min(cargo, 4),
+    straps: Math.min(straps, 4), cluster,
+    warp: E.warp || (parts.includes('warpring') ? { maxC: 1000, perLy: 0.002, minAU: 20, cap: 20 } : null),
     solarMW, reactorMW, storeMJ, weapons,
     cost: E.cost + partCost,
   };
@@ -112,9 +116,17 @@ export function shipSpec(ship) {
   }
   return ship._spec;
 }
+export function warpSpec(ship) { return shipSpec(ship).warp; }
+export function warpKey(ship) { return ENGINES[ship.engine].warp ? 'fuel2' : 'exotic'; }
+
 export function designProblems(engine, parts) {
   const E = ENGINES[engine], out = [];
-  if (!parts.length) out.push('Add at least one module — a probe needs a Science bus or Command module.');
+  const straps = parts.filter(k => k === 'strapon').length;
+  if (straps === 1) out.push('Strap-on engines must be balanced: fit 2, 3 or 4.');
+  if (straps > 4) out.push('At most 4 strap-on engines.');
+  if (parts.filter(k => k === 'warpring').length > 1) out.push('One warp ring is enough.');
+  if (E.staged && straps) out.push('Daedalus is a two-stage design and cannot take strap-ons.');
+  if (!parts.filter(k => !PARTS[k].engine && k !== 'warpring').length) out.push('Add at least one module — a probe needs a Science bus or Command module.');
   if (!parts.some(k => k === 'cmd' || k === 'science' || k === 'hab' || k === 'colony')) out.push('Needs a Command module, Science bus, Habitat ring or Colony module to control the ship.');
   if (parts.length > MAX_PARTS) out.push(`At most ${MAX_PARTS} modules.`);
   for (const k of new Set(parts)) { const p = PARTS[k]; if (p.needs && !E.configs.includes(p.needs)) out.push(`${E.name} cannot carry a ${p.name}.`); }
@@ -140,6 +152,7 @@ export function newShip(engineKey, configKey, name, parts = null) {
   const sp = shipSpec(ship);
   ship.config = sp.config;
   ship.fuel = sp.fuelCap;
+  ship.exotic = sp.warp && !E.warp ? sp.warp.cap : 0;
   ship.ap.cruise = Math.min(sp.rated * 0.97, 0.99);
   return ship;
 }
@@ -328,7 +341,7 @@ export function engineOutput(ship, dtau, beta, vhat, fwd) {
       const ramOk = ship.ram && beta >= E.ram.minBeta && align > 0.7;
       if (thr > 0 && ramOk) {
         const amOk = ship.fuel2 > 0;
-        out.F = ramThrust(E, beta, amOk) * thr;
+        out.F = ramThrust(E, beta, amOk) * thr * shipSpec(ship).cluster;
         ship.fuel2 = Math.max(0, ship.fuel2 - E.ram.amRate * thr * dtau);
         out.ram = true;
         out.phase = 'P2';
@@ -350,7 +363,7 @@ export function engineOutput(ship, dtau, beta, vhat, fwd) {
     }
     case 'bussard': {
       const ramOk = ship.ram && beta >= E.ram.minBeta && align > 0.7;
-      if (thr > 0 && ramOk) { out.F = ramThrust(E, beta) * thr; out.ram = true; out.phase = 'RAM'; }
+      if (thr > 0 && ramOk) { out.F = ramThrust(E, beta) * thr * shipSpec(ship).cluster; out.ram = true; out.phase = 'RAM'; }
       else if (thr > 0) { rocket(); out.phase = out.F > 0 ? 'BOOST' : ''; }
       if (out.sail && !out.F) out.phase = 'SAIL';
       break;
@@ -565,7 +578,7 @@ export function autopilot(ship, t, states, dt, env) {
   const rhat = mul(rel.r, 1 / (dist || 1));
 
   // Warp-capable autopilot: hop between systems in the bubble
-  if (ap.mode === 'approach' && E.warp && !sameSys && ship.fuel2 > 0) {
+  if (ap.mode === 'approach' && warpSpec(ship) && (!sameSys || dist > 500 * AU) && ship[warpKey(ship)] > 0) {
     res.dir = rhat; res.thr = 0; res.warp = true; return res;
   }
 
