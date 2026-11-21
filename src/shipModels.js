@@ -649,6 +649,9 @@ function buildAMED(config) {
   const ex = makeExhaust({ length: 380, r0: 7, r1: 40, core: '#e0fbff', edge: '#00c8ff', fall: 1.15 });
   ex.position.z = -150; root.add(ex); P.plumes.push(ex); P.ramPlume = ex;
   P.pulses = makePulseSystem({ z: -182, scale: 34, color: '#cfeaff' });
+  // Phase 2: scooped hydrogen + antimatter pellets detonate behind the iris door — Orion-style
+  P.amPulses = makePulseSystem({ z: -190, scale: 46, color: '#e4ccff' });
+  root.add(P.amPulses);
   root.add(P.pulses);
   P.lights = navLights(b, [[72, 0, 206, 'navGreen'], [-72, 0, 206, 'navRed'], [0, 62, 88, 'navWhite'], [0, -62, 52, 'navWhite']]);
   P.lights.forEach(l => root.add(l));
@@ -814,7 +817,7 @@ export function buildShip(engine, config, stackParts = null) {
   }
   const { root, parts } = model;
   root.traverse(o => { if (o.isMesh && !o.material.isShaderMaterial && !o.material.isMeshBasicMaterial) { o.castShadow = true; o.receiveShadow = true; } });
-  let pulseTimer = 0, time = 0, plateOff = 0, plateVel = 0, irisOpen = 0, stageDrift = null;
+  let pulseTimer = 0, amTimer = 0, time = 0, plateOff = 0, plateVel = 0, irisOpen = 0, stageDrift = null;
   let sailI = 0, ramI = 0, heat = 0;
 
   model.update = (dt, st) => {
@@ -833,7 +836,7 @@ export function buildShip(engine, config, stackParts = null) {
     // plumes
     let plumeI = st.firing ? Math.min(1, 0.25 + thr * 0.85) : 0;
     if (st.pulse) plumeI = 0;
-    if (engine === 'amed') plumeI = st.phase === 'P2' && st.firing ? 0.2 + thr * 0.35 : 0;
+    if (engine === 'amed') plumeI = st.phase === 'P2' && st.firing ? 0.06 + thr * 0.08 : 0;
     if (engine === 'daedalus') {
       const s2 = st.stage === 2;
       parts.plumes.forEach(p => p.userData.set(!s2 ? plumeI : 0, time));
@@ -859,10 +862,13 @@ export function buildShip(engine, config, stackParts = null) {
       }
       parts.pulses.userData.update(dt);
     }
-    // AMED phase-2 ram detonations: rapid small flashes at the iris
-    if (engine === 'amed' && st.phase === 'P2' && st.firing) {
-      pulseTimer -= dt;
-      if (pulseTimer <= 0) { pulseTimer = 0.13; parts.pulses.userData.trigger(0.12 + thr * 0.1); plateVel += 2.5; irisOpen = 1; }
+    // AMED phase 2: antimatter-catalysed detonations, each a full Orion-style blast on the pusher plate
+    if (parts.amPulses) {
+      if (engine === 'amed' && st.phase === 'P2' && st.firing) {
+        amTimer -= dt;
+        if (amTimer <= 0) { amTimer = 0.5 / Math.max(0.35, thr); parts.amPulses.userData.trigger(0.85 + thr * 0.45); plateVel += 10 + 7 * thr; irisOpen = 1; }
+      }
+      parts.amPulses.userData.update(dt);
     }
     // pusher plate spring-damper
     if (parts.plate) {

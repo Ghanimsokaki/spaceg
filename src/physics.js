@@ -372,7 +372,7 @@ export function engineOutput(ship, dtau, beta, vhat, fwd) {
     }
     case 'daedalus': {
       rocket();
-      if (ship.stage === 1 && ship.fuel <= 0) { ship.stage = 2; out.staged = true; }
+      if (ship.stage === 1 && ship.fuel <= 0 && !ship._s1out) { ship._s1out = true; out.burnout = 1; }
       out.phase = ship.stage === 1 ? 'S1' : 'S2';
       break;
     }

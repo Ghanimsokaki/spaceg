@@ -105,6 +105,7 @@ export function ascentGuidance(ship, t) {
     dir = PH.add(PH.mul(up, sUp), PH.mul(hor, Math.sqrt(Math.max(0, 1 - sUp * sUp))));
     label = vhL < vCirc * 0.6 ? 'GRAVITY TURN' : 'INSERTION BURN';
   }
+  if (b && b[(b.stage === 1 ? 's1' : 's2') + 'fuel'] <= 0) label = `STAGE ${b.stage} BURNOUT · PRESS STAGE`;
   ap.ascLabel = label;
   const done = vhL >= vCirc * 0.998 && o.pe >= ORBIT_ALT * 0.75;
   return { dir: PH.norm(dir), thr: done ? 0 : 1, done, orbit: o };
@@ -123,11 +124,18 @@ export function boosterOutput(ship, dtau) {
   if (dm > b[key]) { f = F * b[key] / dm; dm = b[key]; }
   b[key] -= dm;
   out.F = f;
-  if (b[key] <= 0) {
-    if (b.stage === 1) { b.stage = 2; out.sep = 1; }
-    else { ship.booster = null; out.sep = 2; }
-  }
+  // burnout: engines go quiet; the pilot decides when to separate (STAGE / Space / G)
+  if (b[key] <= 0 && !b['out' + b.stage]) { b['out' + b.stage] = true; out.burnout = b.stage; }
   return out;
+}
+
+// Pilot-commanded staging. Returns 1 (stage 1 dropped), 2 (booster jettisoned) or 0.
+export function stageBooster(ship) {
+  const b = ship.booster;
+  if (!b) return 0;
+  if (b.stage === 1) { b.stage = 2; return 1; }
+  ship.booster = null;
+  return 2;
 }
 
 // ── visuals ──────────────────────────────────────────────────────────────────

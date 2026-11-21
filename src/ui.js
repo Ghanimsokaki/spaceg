@@ -90,6 +90,8 @@ export class UI {
     fb.addEventListener('pointerdown', fireOn); fb.addEventListener('pointerup', fireOff); fb.addEventListener('pointerleave', fireOff);
     $('lockBtn').onclick = () => this.api.cycleLock();
     $('launchBtn').onclick = () => this.api.launch();
+    $('stageBtn').onclick = () => this.api.stageNow();
+    $('padModeBtn').onclick = () => this.api.toggleAutoAscent();
     $('droneBtn').onclick = () => this.api.spawnDrones(3);
     $('lossBtn').onclick = () => { $('loss').hidden = true; this.toggleHQ(true); };
     document.querySelectorAll('[data-tgt]').forEach(b => b.onclick = () => this.cycleTarget(+b.dataset.tgt));
@@ -260,9 +262,9 @@ export class UI {
   updateHUD(ship, camera) {
     this._labels(ship, camera);
     if (this.mapOpen) this.drawMap(ship);
-    this.hudTimer -= 1 / 60;
-    if (this.hudTimer > 0) return;
-    this.hudTimer = 0.1;
+    const nowT = performance.now();             // refresh text readouts ~10×/s of real time
+    if (nowT < (this._hudNext || 0)) return;
+    this._hudNext = nowT + 100;
     const g = this.api.game, E = ENGINES[ship.engine];
     $('coName').textContent = g.company;
     $('coCr').textContent = g.sim ? 'SIMULATOR' : g.sandbox ? '∞ SANDBOX' : UI.fmtMoney(g.credits);
@@ -357,8 +359,19 @@ export class UI {
     $('mpInd').hidden = !net.online;
     if (net.online) $('mpInd').textContent = `● ${net.room || '…'} · ${net.remotes.size + 1}`;
 
-    // launch pad / ascent
+    // launch pad / ascent / staging
     $('launchBtn').hidden = ship.status !== 'landed';
+    $('padModeBtn').hidden = ship.status !== 'landed';
+    $('padModeBtn').textContent = 'Ascent guidance: ' + (this.api.game.settings.autoAscent === false ? 'OFF (manual)' : 'ON');
+    const bst = ship.booster;
+    const dae = ENGINES[ship.engine].staged && ship.stage === 1;
+    const canStage = (bst && ship.status !== 'landed') || dae;
+    $('stageBtn').hidden = !canStage;
+    if (canStage) {
+      const empty = bst ? bst[(bst.stage === 1 ? 's1' : 's2') + 'fuel'] <= 0 : ship.fuel <= 0;
+      $('stageBtn').classList.toggle('ready', !!empty);
+      $('stageBtn').firstChild.textContent = bst ? (bst.stage === 1 ? 'STAGE 1 → 2 ' : 'JETTISON BOOSTER ') : 'STAGE 1 → 2 ';
+    }
     if (ship.ap.mode === 'ascent') $('apPhase').textContent = ship.ap.ascLabel || 'ASCENT';
     // AMED: the dossier's three-phase flight profile
     const isAmed = ship.engine === 'amed';
@@ -453,7 +466,7 @@ export class UI {
     let tg = '';
     if (E.ram) tg += `<button class="chip ${ship.ram ? 'on' : ''}" data-tog="ram">Scoop<kbd>R</kbd></button>`;
     if (E.magsail) tg += `<button class="chip ${ship.magsail ? 'warnon' : ''}" data-tog="sail">Mag-sail<kbd>B</kbd></button>`;
-    if (E.staged && ship.stage === 1) tg += `<button class="chip" data-tog="stage">Stage<kbd>G</kbd></button>`;
+
     if (PH.warpSpec(ship)) tg += `<button class="chip ${ship.warpOn ? 'on' : ''}" data-tog="warp">Warp ${ship.warpOn ? ship.warpC + 'c' : ''}<kbd>V</kbd></button>`;
     const fa = this.api.game.settings.flightAssist !== false;
     tg += `<button class="chip ${fa ? 'on' : ''}" data-tog="assist" title="Flight assist: the ship goes where the nose points">Assist<kbd>U</kbd></button>`;

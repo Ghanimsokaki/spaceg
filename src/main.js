@@ -348,7 +348,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'x') { ship.throttle = 0; cancelAP(ship, true); }
   if (k === 'b') ship.magsail = !ship.magsail;
   if (k === 'r') ship.ram = !ship.ram;
-  if (k === 'g') stageNow(ship);
+  if (k === 'g' || k === ' ') { stageNow(ship); e.preventDefault(); }
   if (k === 'v') toggleWarpDrive(ship);
   if (k === '[') ship.warpC = Math.max(1, Math.round(ship.warpC / 1.5));
   if (k === ']') { const W = PH.warpSpec(ship); ship.warpC = Math.min(W ? W.maxC : 1, Math.round(ship.warpC * 1.5 + 1)); }
@@ -378,7 +378,16 @@ function cycleCamera() {
 function cancelAP(ship, quiet) { if (ship.ap.mode !== 'off') { ship.ap.mode = 'off'; ship.ap.plan = null; if (!quiet) ui.toast('Autopilot off'); } }
 function stageNow(ship) {
   const E = ENGINES[ship.engine];
-  if (E.staged && ship.stage === 1) { ship.stage = 2; ship.fuel = 0; ui.toast('Stage 1 separated'); }
+  if (ship.booster) {
+    if (ship.status === 'landed') { ui.toast('Launch first — then stage when a stage burns out'); return; }
+    const sep = LN.stageBooster(ship);
+    sepEvents.push(sep);
+    if (sep === 1) ui.toast('Stage 1 separated · stage 2 ready', 'good');
+    if (sep === 2) ui.toast(`Booster jettisoned · ${E.name} online`, 'good');
+    return;
+  }
+  if (E.staged && ship.stage === 1) { ship.stage = 2; ship.fuel = 0; ship._s1out = false; ui.toast('Stage 1 separated · stage 2 ignition', 'good'); return; }
+  ui.toast('Nothing to stage');
 }
 function toggleWarpDrive(ship) {
   const E = ENGINES[ship.engine];
@@ -547,8 +556,9 @@ function stepShip(ship, dt, realDtPart) {
       const F = (ship.booster ? ship.booster.F1 : PH.rocketParams(ship).F) * ship.throttle;
       const W = PH.shipMass(ship) * G * ps.b.mass / (ps.b.radius * ps.b.radius);
       if (F > W) {
-        ship.status = 'ascent'; ship.ap.mode = ship.booster ? 'ascent' : 'off'; ship.ap.asc = 'climb'; ship.ap.plan = null;
-        ui.toast('Liftoff! Ascent guidance is flying a gravity turn to orbit (press 1 to take over).', 'good');
+        const auto = G_.settings.autoAscent !== false && ship.booster;
+        ship.status = 'ascent'; ship.ap.mode = auto ? 'ascent' : 'off'; ship.ap.asc = 'climb'; ship.ap.plan = null;
+        ui.toast(auto ? 'Liftoff! Guidance steers the gravity turn — you call the staging (Space / G). Press 1 to fly it yourself.' : 'Liftoff! Manual ascent: you steer, throttle and stage.', 'good');
       } else if (!ship._twrWarned) { ship._twrWarned = true; ui.toast('Not enough thrust to lift off', 'warn'); }
     }
     return { firing: ship.throttle > 0, throttle: ship.throttle, phase: '' };
@@ -644,8 +654,11 @@ function stepShip(ship, dt, realDtPart) {
   const thrBefore = ship.throttle;
   const bout = ship.booster ? LN.boosterOutput(ship, dtau) : null;
   const out = bout || PH.engineOutput(ship, dtau, beta, vhat, fwd);
-  if (bout && bout.sep) { sepEvents.push(bout.sep); ui.toast(bout.sep === 1 ? 'Stage 1 burnout · separation · stage 2 ignition' : 'Stage 2 burnout · booster jettisoned', 'good'); }
-  if (out.staged) ui.toast('Stage 1 burnout — separation confirmed. Stage 2 ignition.');
+  if (out.burnout) {
+    ui.toast(`Stage ${out.burnout} burnout — press STAGE (Space / G) to separate`, 'warn');
+    if (net.role !== 'client' && warpIdx > 0) warpIdx = 0;   // give the pilot time to react
+  }
+
   const mNow = PH.shipMass(ship);
   // proper-velocity update: du/dt = (F∥ + F⊥/γ)/m + drag/m + γg
   let du = [0, 0, 0];
@@ -760,9 +773,8 @@ function stepShip(ship, dt, realDtPart) {
 
 let sepEvents = [];
 function finishAscent(ship, o) {
-  if (ship.booster) { sepEvents.push(ship.booster.stage === 1 ? 3 : 2); ship.booster = null; }
   ship.status = 'orbit'; ship.orbiting = LN.PAD_BODY; ship.ap.mode = 'off'; ship.ap.asc = null; ship.throttle = 0;
-  ui.toast(`Orbit achieved: ${(o.ap / 1000).toFixed(0)} × ${(o.pe / 1000).toFixed(0)} km. Booster jettisoned. Your own drive is ready.`, 'good');
+  ui.toast(`Orbit achieved: ${(o.ap / 1000).toFixed(0)} × ${(o.pe / 1000).toFixed(0)} km.${ship.booster ? ' Press STAGE to jettison the booster and use your own drive.' : ''}`, 'good');
 }
 
 function destroyShip(ship, why) {
@@ -911,6 +923,7 @@ const ui = new UI({
   flyShip: (id) => { G_.activeId = id; save(); },
   toggleWarpDrive: () => { const s = activeShip(); if (s) toggleWarpDrive(s); },
   stageNow: () => { const s = activeShip(); if (s) stageNow(s); },
+  toggleAutoAscent: () => { G_.settings.autoAscent = G_.settings.autoAscent === false; ui.toast('Ascent guidance ' + (G_.settings.autoAscent ? 'ON — it steers, you stage' : 'OFF — you fly the whole ascent')); },
   cycleCamera, get camMode() { return cam.mode; },
   togglePause: () => { paused = !paused; }, get paused() { return paused; },
   setBloom: (on) => { bloom.enabled = on; },

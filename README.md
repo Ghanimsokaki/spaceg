@@ -16,12 +16,12 @@ Every drive and part is free and unlocked from the start; contracts still pay cr
 
 ### Launch from Earth
 
-In the Flight simulator (or with Sandbox → *Put on Earth launch pad*), your ship stands on a pad on the rotating Earth, on top of a two-stage booster sized to it. Press **LAUNCH**. Ascent guidance does the rest:
-1. a vertical climb, then a gravity turn
-2. stage 1 separates and stage 2 ignites
-3. an insertion burn into roughly a 250 km orbit, after which the booster is jettisoned
+In the Flight simulator (or with Sandbox → *Put on Earth launch pad*), your ship stands on a pad on the rotating Earth, on top of a two-stage booster sized to it. Press **LAUNCH**. **You control the staging:**
+- When a stage burns out, its engines go quiet, time warp drops to 1×, and the **STAGE** button pulses.
+- Press it (or **Space** / **G**) to separate. You can also stage early.
+- At orbit, press it once more to jettison the booster and switch to your own drive.
 
-Press **1** at any time to take manual control. There is no atmospheric drag; the sky fades from blue to black as you climb.
+Ascent guidance steers the gravity turn for you, toward roughly a 250 km orbit. Turn it off with the *Ascent guidance* chip on the pad to fly the whole ascent yourself, or press **1** mid-flight to take over. There is no atmospheric drag; the sky fades from blue to black as you climb.
 
 ### Flying
 

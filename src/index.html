@@ -281,6 +281,12 @@ body.compact.portrait .tleft { left: 160px; }
 body.compact.portrait .tbtn.fire { width: 64px; height: 64px; }
 body.compact.portrait .throt input { height: 120px; }
 .launch { position: absolute; right: max(330px, calc(env(safe-area-inset-right, 0px) + 330px)); bottom: 130px; padding: 16px 48px; border-radius: 40px; border: 2px solid var(--amber); background: rgba(245,158,11,.18); color: #ffd27a; font: 800 24px var(--f-display); letter-spacing: .3em; cursor: pointer; box-shadow: 0 0 30px rgba(245,158,11,.35); }
+.stagebtn { font-size: 18px; padding: 12px 28px; border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,.12); box-shadow: none; }
+.stagebtn kbd { font: 600 10px var(--f-mono); color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+.stagebtn.ready { border-color: var(--amber); color: #ffd27a; background: rgba(245,158,11,.22); animation: stagePulse 0.9s ease-in-out infinite; }
+@keyframes stagePulse { 50% { box-shadow: 0 0 34px rgba(245,158,11,.6); } }
+.padmode { position: absolute; right: max(330px, calc(env(safe-area-inset-right, 0px) + 330px)); bottom: 210px; }
+@media (prefers-reduced-motion: reduce) { .stagebtn.ready { animation: none; } }
 .launch:hover, .launch:focus-visible { background: rgba(245,158,11,.32); outline: none; }
 .phaseline { position: absolute; left: 50%; top: 66px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 6px; width: min(640px, calc(100% - 640px)); min-width: 360px; }
 .phaseline .pc { position: relative; padding: 6px 8px 9px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
@@ -412,6 +418,8 @@ body.compact .phaseline { display: none; }
   </div>
 
   <button class="launch" id="launchBtn" hidden>LAUNCH</button>
+  <button class="launch stagebtn" id="stageBtn" hidden>STAGE <kbd>Space</kbd></button>
+  <button class="chip padmode" id="padModeBtn" hidden>Ascent guidance: ON</button>
   <div class="phaseline panel" id="phaseline" hidden aria-label="AMED three-phase flight profile">
     <div class="pc p1" data-ph="1"><b>Phase 1 · 0.00c → 0.15c</b><span>Orion fusion start</span><i></i></div>
     <div class="pc p2" data-ph="2"><b>Phase 2 · 0.15c → 0.50c+</b><span>Antimatter ram-explosion cruise</span><i></i></div>
@@ -519,7 +527,7 @@ body.compact .phaseline { display: none; }
         <li><kbd>U</kbd> flight assist (on: ship goes where it points · off: real orbital mechanics)</li>
         <li>Cyan line = your predicted path · red = it hits the surface</li>
         <li><kbd>R</kbd> ramscoop · <kbd>B</kbd> magnetic sail</li>
-        <li><kbd>G</kbd> stage (Daedalus) · <kbd>V</kbd> warp · <kbd>[</kbd><kbd>]</kbd> warp speed</li>
+        <li><kbd>Space</kbd>/<kbd>G</kbd> stage (booster, Daedalus) · <kbd>V</kbd> warp · <kbd>[</kbd><kbd>]</kbd> warp speed</li>
         <li><kbd>F</kbd> fire (hold) · <kbd>Y</kbd> next target · <kbd>J</kbd> launch target drones</li>
         <li>Touch: left stick steers, ⟲ ⟳ roll, right slider is throttle, drag the sky to look, pinch to zoom</li>
         <li>Trackpad: click-drag to look, two-finger scroll or pinch to zoom</li>
