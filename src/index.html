@@ -280,6 +280,21 @@ body.compact.portrait .stick { width: 130px; height: 130px; }
 body.compact.portrait .tleft { left: 160px; }
 body.compact.portrait .tbtn.fire { width: 64px; height: 64px; }
 body.compact.portrait .throt input { height: 120px; }
+.launch { position: absolute; right: max(330px, calc(env(safe-area-inset-right, 0px) + 330px)); bottom: 130px; padding: 16px 48px; border-radius: 40px; border: 2px solid var(--amber); background: rgba(245,158,11,.18); color: #ffd27a; font: 800 24px var(--f-display); letter-spacing: .3em; cursor: pointer; box-shadow: 0 0 30px rgba(245,158,11,.35); }
+.launch:hover, .launch:focus-visible { background: rgba(245,158,11,.32); outline: none; }
+.phaseline { position: absolute; left: 50%; top: 66px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 6px; width: min(640px, calc(100% - 640px)); min-width: 360px; }
+.phaseline .pc { position: relative; padding: 6px 8px 9px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.phaseline b { display: block; font: 600 10px var(--f-mono); color: var(--dim); white-space: nowrap; }
+.phaseline span { display: block; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phaseline i { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; }
+.phaseline .p1 i { background: var(--amber); } .phaseline .p2 i { background: var(--cyan); } .phaseline .p3 i { background: var(--violet); }
+.phaseline .pc.on { background: rgba(255,255,255,.04); }
+.phaseline .p1.on { border-color: rgba(245,158,11,.6); } .phaseline .p1.on b { color: var(--amber); }
+.phaseline .p2.on { border-color: rgba(0,229,255,.6); } .phaseline .p2.on b { color: var(--cyan); }
+.phaseline .p3.on { border-color: rgba(168,85,247,.6); } .phaseline .p3.on b { color: #d6b4ff; }
+.phaseline .pc.on span { color: var(--text); }
+@media (max-width: 1100px) { .phaseline { top: 66px; min-width: 0; width: calc(100% - 24px); } .phaseline span { display: none; } }
+body.compact .phaseline { display: none; }
 #help .box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(720px, calc(100% - 32px)); max-height: calc(100% - 40px); overflow: auto; padding: 22px; }
 #help h2 { margin: 0 0 12px; font-family: var(--f-display); letter-spacing: .14em; text-transform: uppercase; }
 #help .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-size: 13px; }
@@ -389,6 +404,12 @@ body.compact.portrait .throt input { height: 120px; }
     <div class="throttle"><span class="lbl">Thr</span><div class="bar"><i id="thrBar"></i></div><span class="num" id="thrT">0%</span></div>
   </div>
 
+  <button class="launch" id="launchBtn" hidden>LAUNCH</button>
+  <div class="phaseline panel" id="phaseline" hidden aria-label="AMED three-phase flight profile">
+    <div class="pc p1" data-ph="1"><b>Phase 1 · 0.00c → 0.15c</b><span>Orion fusion start</span><i></i></div>
+    <div class="pc p2" data-ph="2"><b>Phase 2 · 0.15c → 0.50c+</b><span>Antimatter ram-explosion cruise</span><i></i></div>
+    <div class="pc p3" data-ph="3"><b>Phase 3 · 0.50c → 0.00c</b><span>Magnetic parachute &amp; Orion brake</span><i></i></div>
+  </div>
   <section class="weapons panel" id="wpn" hidden aria-label="Weapons">
     <h3>Weapons <em id="wpnTgt">no target</em></h3>
     <div class="barrow"><span class="lbl">Energy</span><div class="bar"><i id="wpnE"></i></div><span class="num" id="wpnET">0 MJ</span></div>
@@ -470,6 +491,8 @@ body.compact.portrait .throt input { height: 120px; }
       <button class="btn amber" id="contBtn" hidden>Continue</button>
     </div>
     <div class="actions" style="margin-top:10px">
+      <button class="btn" id="simBtn" title="No company or contracts: launch from Earth's surface and fly anywhere">Flight simulator</button>
+      <button class="btn ghost" id="simContBtn" hidden>Continue simulator</button>
       <button class="btn ghost" id="sandBtn" title="Unlimited money, every drive and part unlocked, teleport anywhere">Sandbox mode</button>
       <button class="btn ghost" id="sandContBtn" hidden>Continue sandbox</button>
     </div>

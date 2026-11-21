@@ -157,11 +157,13 @@ export function newShip(engineKey, configKey, name, parts = null) {
   return ship;
 }
 
+const boosterMassOf = (b) => b ? (b.stage === 1 ? b.s1dry + b.s1fuel : 0) + b.s2dry + b.s2fuel : 0;
 export function shipMass(ship) {
   const E = ENGINES[ship.engine], sp = shipSpec(ship);
-  if (E.staged) return sp.dry + ship.fuel2 + (ship.stage === 1 ? E.dry + ship.fuel : 0);
+  const bm = boosterMassOf(ship.booster);
+  if (E.staged) return sp.dry + ship.fuel2 + (ship.stage === 1 ? E.dry + ship.fuel : 0) + bm;
   const f2 = ship.engine === 'amed' ? ship.fuel2 : 0;
-  return sp.dry + ship.fuel + f2;
+  return sp.dry + ship.fuel + f2 + bm;
 }
 export function shipDryMass(ship) { return shipSpec(ship).dry; }
 export function fuelCapacity(ship) { return shipSpec(ship).fuelCap; }

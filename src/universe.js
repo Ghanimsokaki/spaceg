@@ -94,6 +94,7 @@ export class Universe {
     this.sky.renderOrder = -10;
     scene.add(this.sky);
     this.beta = new THREE.Vector3();
+    this.skyDim = { value: 0 };
     this.relOptics = true;
     this.time = 0;
     this._buildMilkyWay();
@@ -168,8 +169,8 @@ export class Universe {
 
   _starMaterial(big = false) {
     return new THREE.ShaderMaterial({
-      uniforms: { uBeta: { value: this.beta }, uPx: { value: Math.min(window.devicePixelRatio, 2) }, uBig: { value: big ? 1 : 0 } },
-      vertexShader: `attribute float aTemp; attribute float aMag; uniform float uPx; uniform float uBig; varying vec3 vCol; varying float vA;
+      uniforms: { uBeta: { value: this.beta }, uPx: { value: Math.min(window.devicePixelRatio, 2) }, uBig: { value: big ? 1 : 0 }, uDim: this.skyDim },
+      vertexShader: `attribute float aTemp; attribute float aMag; uniform float uPx; uniform float uBig; uniform float uDim; varying vec3 vCol; varying float vA;
         ${BLACKBODY_GLSL} ${ABERR_GLSL}
         #include <common>
         #include <logdepthbuf_pars_vertex>
@@ -180,7 +181,7 @@ export class Universe {
           #include <logdepthbuf_vertex>
           float lum = pow(10.0, -0.4 * (aMag - 6.5)) * pow(D, 3.0);
           vCol = blackbody(clamp(aTemp * D, 1200.0, 60000.0));
-          vA = clamp(lum * 0.7, 0.05, 1.0);
+          vA = clamp(lum * 0.7, 0.05, 1.0) * (1.0 - uDim * 0.97);
           gl_PointSize = clamp(1.0 + 1.1 * pow(lum, 0.33) * (1.0 + uBig * 0.6), 1.0, 6.0 + uBig * 8.0) * uPx;
         }`,
       fragmentShader: `varying vec3 vCol; varying float vA;

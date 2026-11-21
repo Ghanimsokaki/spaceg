@@ -89,6 +89,7 @@ export class UI {
     const fireOff = () => { this.api.setFire(false); fb.classList.remove('on'); };
     fb.addEventListener('pointerdown', fireOn); fb.addEventListener('pointerup', fireOff); fb.addEventListener('pointerleave', fireOff);
     $('lockBtn').onclick = () => this.api.cycleLock();
+    $('launchBtn').onclick = () => this.api.launch();
     $('droneBtn').onclick = () => this.api.spawnDrones(3);
     $('lossBtn').onclick = () => { $('loss').hidden = true; this.toggleHQ(true); };
     document.querySelectorAll('[data-tgt]').forEach(b => b.onclick = () => this.cycleTarget(+b.dataset.tgt));
@@ -157,7 +158,10 @@ export class UI {
     $('introEngines').innerHTML = ENGINE_ORDER.map(k => `<span class="tag ${k === 'amed' ? 'cy' : k === 'blackhole' ? 'vi' : ''}">${esc(ENGINES[k].name)}</span>`).join('');
     $('newBtn').onclick = () => { this.api.newGame($('coInput').value.trim()); this._startPlay(true); };
     $('contBtn').onclick = async () => { if (await this.api.loadGame('career')) this._startPlay(false); };
-    $('sandBtn').onclick = () => { this.api.newGame(($('coInput').value.trim() || 'Stellar Drive Works') + ' Sandbox', true); this._startPlay(true); };
+    $('sandBtn').onclick = () => { this.api.newGame(($('coInput').value.trim() || 'Stellar Drive Works') + ' Sandbox', 'sandbox'); this._startPlay(true); };
+    $('simBtn').onclick = () => { this.api.newGame('Flight Simulator', 'sim'); this._startPlay(true); };
+    $('simContBtn').onclick = async () => { if (await this.api.loadGame('sim')) this._startPlay(false); };
+    this.api.hasSave('sim').then(v => { $('simContBtn').hidden = !v; });
     $('sandContBtn').onclick = async () => { if (await this.api.loadGame('sandbox')) this._startPlay(false); };
   }
   _startPlay(isNew) {
@@ -165,7 +169,11 @@ export class UI {
     $('hud').hidden = false;
     this.sel.engine = 'chem'; this.sel.parts = ['science']; this.sel.refitId = null;
     $('sandTab').hidden = !this.api.game.sandbox;
-    if (isNew && this.api.game.sandbox) {
+    this._modeTabs();
+    if (isNew && this.api.game.sim) {
+      this.toast('Flight simulator: you are on the launch pad. Press LAUNCH — a booster carries you to orbit, then fly anywhere. Build ships in HQ → Shipyard.', 'good');
+      const s = this.api.activeShip(); if (s) s.ap.target = 'sol:Moon';
+    } else if (isNew && this.api.game.sandbox) {
       this.toast('Sandbox: unlimited money, every drive and part unlocked. Press J to launch target drones, hold F to fire. Open HQ → Sandbox to teleport anywhere.', 'good');
       const s = this.api.activeShip(); if (s) s.ap.target = 'sol:Moon';
     } else if (isNew) {
@@ -255,7 +263,8 @@ export class UI {
     this.hudTimer = 0.1;
     const g = this.api.game, E = ENGINES[ship.engine];
     $('coName').textContent = g.company;
-    $('coCr').textContent = g.sandbox ? '∞ SANDBOX' : UI.fmtMoney(g.credits);
+    $('coCr').textContent = g.sim ? 'SIMULATOR' : g.sandbox ? '∞ SANDBOX' : UI.fmtMoney(g.credits);
+    if (g.sim) $('coName').textContent = 'Flight Simulator';
     $('coRep').textContent = 'REP ' + g.rep;
     const W = this.api.WARPS[this.api.warpIdx];
     $('wVal').textContent = (W >= 1e6 ? W.toExponential(0).replace('e+', 'e') : W.toLocaleString('en-US')) + '×';
@@ -341,6 +350,20 @@ export class UI {
     if (E.flybyOnly && ap.mode === 'approach') info = 'Daedalus cannot brake — use Flyby (6)';
     $('apInfo').textContent = info;
 
+    // launch pad / ascent
+    $('launchBtn').hidden = ship.status !== 'landed';
+    if (ship.ap.mode === 'ascent') $('apPhase').textContent = ship.ap.ascLabel || 'ASCENT';
+    // AMED: the dossier's three-phase flight profile
+    const isAmed = ship.engine === 'amed';
+    $('phaseline').hidden = !isAmed || ship.status === 'landed' || ship.status === 'docked';
+    if (isAmed) {
+      const P = this.api.fx.phase || '';
+      const b = PH.len(PH.velOfU(ship.u)) / C;
+      const cur = P === 'P2' ? 2 : (P === 'P3A' || P === 'P3B') ? 3 : P === 'P1' ? 1 : (b < 0.15 ? 1 : 2);
+      const prog = [Math.min(1, b / 0.15), Math.max(0, Math.min(1, (b - 0.15) / 0.35)), cur === 3 ? Math.max(0, Math.min(1, 1 - b / 0.5)) : 0];
+      document.querySelectorAll('#phaseline .pc').forEach((el, i) => { el.classList.toggle('on', cur === i + 1); el.querySelector('i').style.width = (prog[i] * 100) + '%'; });
+    }
+
     // touch layer + autosave indicator
     this.applyTouchMode();
     if (document.activeElement !== $('tThr')) $('tThr').value = Math.round(ship.throttle * 100);
@@ -371,6 +394,12 @@ export class UI {
     const sys = SYS_BY_ID[ship.sys];
     const g = this.api.game;
     if (ship.status === 'docked') return '<b>Docked</b> · Orbital Shipyard, Earth';
+    if (ship.status === 'landed') return '<b>On the launch pad</b> · Earth' + (ship.booster ? ' · booster attached' : '');
+    if (ship.status === 'ascent' || ship.booster) {
+      const b = PH.bodyById('sol:Earth'), st = PH.bodyState(b, g.t);
+      const alt = PH.len(PH.sub(ship.p, st.p)) - b.radius;
+      return `<b>Ascent</b> · altitude ${UI.fmtDist(alt)}${ship.booster ? ' · booster stage ' + ship.booster.stage : ''}`;
+    }
     if (ship.warpOn) return `<b>In warp bubble</b> · ${esc(sys.name)} region`;
     let best = null, bd = Infinity;
     for (const b of sys.bodies) {
@@ -670,7 +699,9 @@ export class UI {
     $('hqName').textContent = g.company;
     $('hqSub').textContent = `Headquarters · ${UI.fmtDate(g.t)} · ${g.sandbox ? 'Sandbox · unlimited funds' : UI.fmtMoney(g.credits) + ' · reputation ' + g.rep}`;
     $('sandTab').hidden = !g.sandbox;
+    this._modeTabs();
     if (this.tab === 'sandbox' && !g.sandbox) this.tab = 'fleet';
+    if (g.sim && (this.tab === 'rd' || this.tab === 'contracts')) this.tab = 'yard';
     document.querySelectorAll('#hqTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === this.tab));
     const body = $('hqBody');
     if (this.tab === 'fleet') body.innerHTML = this._fleetHTML();
@@ -830,11 +861,20 @@ export class UI {
     return h;
   }
 
+  _modeTabs() {
+    const g = this.api.game; if (!g) return;
+    document.querySelector('[data-tab=rd]').hidden = !!g.sim;
+    document.querySelector('[data-tab=contracts]').hidden = !!g.sim;
+    $('sandTab').textContent = g.sim ? 'Simulator' : 'Sandbox';
+  }
+
   _sandboxHTML() {
     const g = this.api.game, s = this.api.activeShip();
     const on = (v) => v ? 'On' : 'Off';
     let h = `<p class="blurb" style="margin-top:0">Everything is unlocked and free. Build any design in the Shipyard, then use these tools on <b>${esc(s ? s.name : 'your active ship')}</b>.</p>`;
     h += `<div class="sbgrid">
+      <h6>Launch</h6>
+      <button class="btn amber" data-act="sbpad">Put on Earth launch pad</button>
       <h6>Ship</h6>
       <button class="btn" data-act="sbrefill">Refuel · rearm · repair</button>
       <button class="btn ${g.settings.invincible ? '' : 'ghost'}" data-act="sbgod">Invincible · ${on(g.settings.invincible)}</button>
@@ -949,6 +989,7 @@ export class UI {
         this.toast(`${r.name} refitted: ${CONFIGS[r.config].name}`, 'good'); break;
       }
       case 'sbtele': this.api.teleport(actEl.dataset.id); this.toggleHQ(false); return;
+      case 'sbpad': this.api.launchPad(); this.toggleHQ(false); return;
       case 'sbrefill': { const s = this.api.activeShip(); if (s) { this.api.refill(s); this.toast(`${s.name} refuelled, rearmed and repaired`, 'good'); } break; }
       case 'sbgod': g.settings.invincible = !g.settings.invincible; break;
       case 'sbfuel': g.settings.infiniteFuel = !g.settings.infiniteFuel; break;

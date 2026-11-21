@@ -15,6 +15,7 @@ const renderCompress = (d) => d <= RMAX ? d : RMAX * (1 + Math.log(d / RMAX));
 import { UI } from './ui.js';
 import { Combat, starFlux } from './combat.js';
 import { storage } from './storage.js';
+import * as LN from './launch.js';
 
 // ── renderer & scenes ────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -43,6 +44,59 @@ scene.add(fill); fill.layers.enable(1);
 const universe = new Universe(scene);
 const combat = new Combat(scene);
 // predicted ballistic path relative to the local body (cyan), red where it hits the surface
+const padMesh = LN.buildPad(); padMesh.visible = false; scene.add(padMesh);
+const skyDome = LN.buildSky(); universe.sky.add(skyDome);
+let boosterView = null, boosterKey = '';
+function updateLaunchVisuals(ship, rdt) {
+  // launch pad on the rotating planet
+  padMesh.visible = false;
+  if (ship.pad && ship.sys === 'sol') {
+    const ps = LN.padState(ship, G_.t);
+    const rel = PH.sub(PH.sub(ps.p, PH.mul(ps.up, ship.pad.h || 0)), ship.p);
+    if (PH.len(rel) < 3e6) {
+      padMesh.visible = true;
+      padMesh.position.set(rel[0], rel[1], rel[2]);
+      padMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...ps.up));
+    }
+  }
+  // booster stack under the ship
+  const key = ship.id + viewKey;
+  if (ship.booster && boosterKey !== key) {
+    if (boosterView) shipRoot.remove(boosterView.group);
+    boosterView = LN.buildBoosterView(view); shipRoot.add(boosterView.group); boosterKey = key;
+    if (ship.pad) ship.pad.h = boosterView.bottom;   // stand the stack on its engines
+  }
+  if (boosterView) {
+    for (const s of sepEvents) { if (s === 1 || s === 3) LN.separate(boosterView, 1); if (s === 2 || s === 3) LN.separate(boosterView, 2); }
+    LN.updateBoosterView(boosterView, ship, rdt, performance.now() / 1000);
+    if (!ship.booster && boosterView.drift.every(d => !d.obj.visible)) { shipRoot.remove(boosterView.group); boosterView = null; boosterKey = ''; }
+  }
+  sepEvents = [];
+  if (boosterView && ship.booster) cam.dist = Math.max(view.camDist, (view.length + boosterView.totalLen) * 1.15);
+  else if (view) cam.dist = view.camDist;
+  // atmosphere: blue daytime sky that fades out with altitude
+  let dens = 0;
+  const sys = SYS_BY_ID[ship.sys];
+  for (const b of sys.bodies) {
+    if (!b.atmo || b.type !== 'planet') continue;
+    const st = PH.bodyState(b, G_.t);
+    const r = PH.sub(ship.p, st.p), d = PH.len(r), alt = d - b.radius;
+    if (alt > 150e3) continue;
+    const D = Math.min(1, Math.exp(-alt / 14000) * 1.05);
+    if (D > dens) {
+      dens = D;
+      const U = skyDome.material.uniforms;
+      U.uUp.value.set(r[0] / d, r[1] / d, r[2] / d);
+      const sd = PH.norm(PH.mul(ship.p, -1)); U.uSun.value.set(sd[0], sd[1], sd[2]);
+      U.uCol.value.setRGB(b.atmo[0] * 0.55, b.atmo[1] * 0.75, b.atmo[2]);
+    }
+  }
+  skyDome.material.uniforms.uD.value = dens;
+  skyDome.visible = dens > 0.003;
+  const U = skyDome.material.uniforms;
+  const day = Math.max(0, Math.min(1, (U.uUp.value.dot(U.uSun.value) + 0.12) / 0.37));
+  universe.skyDim.value = dens * day;
+}
 const predGeo = new THREE.BufferGeometry();
 predGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(301 * 3), 3));
 const predLine = new THREE.Line(predGeo, new THREE.LineBasicMaterial({ color: 0x33e1ff, transparent: true, opacity: 0.55 }));
@@ -53,7 +107,7 @@ let predTimer = 0;
 function updatePrediction(ship, rdt) {
   predTimer -= rdt;
   const v = PH.velOfU(ship.u);
-  const show = G_.settings.showPath !== false && !ship.warpOn && ship.status !== 'docked' && ship.status !== 'landed' && PH.len(v) < 0.02 * C;
+  const show = G_.settings.showPath !== false && !ship.warpOn && ship.status !== 'docked' && ship.status !== 'landed' && ship.ap.mode !== 'ascent' && PH.len(v) < 0.02 * C;
   predLine.visible = show; if (!show) { impactMark.visible = false; return; }
   if (predTimer > 0) return; predTimer = 0.25;
   const states = PH.systemState(SYS_BY_ID[ship.sys], G_.t);
@@ -149,16 +203,18 @@ hComposer.addPass(hBloom);
 hComposer.addPass(new OutputPass());
 
 // ── game state ───────────────────────────────────────────────────────────────
-const SAVE_KEYS = { career: 'sdw-save-v1', sandbox: 'sdw-sandbox-v1' };
+const SAVE_KEYS = { career: 'sdw-save-v1', sandbox: 'sdw-sandbox-v1', sim: 'sdw-sim-v1' };
 let G_ = null; // game state
-function freshGame(name, sandbox = false) {
-  return {
+function freshGame(name, mode = 'career') {
+  if (mode === true) mode = 'sandbox';
+  const sandbox = mode !== 'career';
+  return { sim: mode === 'sim',
     company: name || 'Stellar Drive Works', credits: sandbox ? 1e12 : START_CREDITS, rep: sandbox ? 999 : 0, t: 0, sandbox,
     unlocked: Object.keys(ENGINES), fleet: [], activeId: null, done: {}, records: { maxBeta: 0 }, kills: 0, killsBase: 0,
     settings: { relOptics: true, bloom: true, invincible: false, infiniteFuel: false },
   };
 }
-const keyOf = (g) => SAVE_KEYS[g && g.sandbox ? 'sandbox' : 'career'];
+const keyOf = (g) => SAVE_KEYS[g && g.sim ? 'sim' : g && g.sandbox ? 'sandbox' : 'career'];
 // autosave: IndexedDB (localStorage fallback); writes are coalesced so a burst of saves costs one write
 let saving = false, saveAgain = false, lastSaved = 0;
 function save() {
@@ -479,6 +535,23 @@ function stepShip(ship, dt, realDtPart) {
   const gam = PH.gammaOfU(ship.u);
   const vhat = sp > 1e-9 ? PH.mul(v, 1 / sp) : fwdOf(ship);
 
+  // on the launch pad: pinned to the rotating planet until the stack can lift off
+  if (ship.status === 'landed' && ship.pad) {
+    G_.t += dt; ship.tau += dt;
+    const ps = LN.padState(ship, G_.t);       // pinned at the END of the step (the planet moves fast)
+    ship.p = ps.p; ship.u = PH.uOfVel(ps.v);
+    ship.q = LN.quatFromTo([0, 0, 1], ps.up);
+    if (ship.throttle > 0) {
+      const F = (ship.booster ? ship.booster.F1 : PH.rocketParams(ship).F) * ship.throttle;
+      const W = PH.shipMass(ship) * G * ps.b.mass / (ps.b.radius * ps.b.radius);
+      if (F > W) {
+        ship.status = 'ascent'; ship.ap.mode = ship.booster ? 'ascent' : 'off'; ship.ap.asc = 'climb'; ship.ap.plan = null;
+        ui.toast('Liftoff! Ascent guidance is flying a gravity turn to orbit (press 1 to take over).', 'good');
+      } else if (!ship._twrWarned) { ship._twrWarned = true; ui.toast('Not enough thrust to lift off', 'warn'); }
+    }
+    return { firing: ship.throttle > 0, throttle: ship.throttle, phase: '' };
+  }
+
   // docked: ride along with the shipyard
   if (ship.status === 'docked' && ship.throttle === 0 && ship.ap.mode === 'off') {
     const yard = SYS_BY_ID.sol.byName.Shipyard;
@@ -492,7 +565,12 @@ function stepShip(ship, dt, realDtPart) {
   // ── autopilot
   const ap = ship.ap;
   let apOut = null;
-  if (ap.mode !== 'off') {
+  if (ap.mode === 'ascent') {
+    const gd = LN.ascentGuidance(ship, t);
+    steerTo(ship, gd.dir, Math.max(0.6 * realDtPart, Math.min(Math.PI, 0.3 * dt)));
+    ship.throttle = gd.thr;
+    if (gd.done) finishAscent(ship, gd.orbit);
+  } else if (ap.mode !== 'off') {
     const env = {};
     const tb = ap.target ? PH.bodyById(ap.target) : null;
     if (tb && (ap.mode === 'approach' || ap.mode === 'flyby')) {
@@ -562,7 +640,9 @@ function stepShip(ship, dt, realDtPart) {
   const fwd = fwdOf(ship);
   const dtau = dt / gam;
   const thrBefore = ship.throttle;
-  const out = PH.engineOutput(ship, dtau, beta, vhat, fwd);
+  const bout = ship.booster ? LN.boosterOutput(ship, dtau) : null;
+  const out = bout || PH.engineOutput(ship, dtau, beta, vhat, fwd);
+  if (bout && bout.sep) { sepEvents.push(bout.sep); ui.toast(bout.sep === 1 ? 'Stage 1 burnout · separation · stage 2 ignition' : 'Stage 2 burnout · booster jettisoned', 'good'); }
   if (out.staged) ui.toast('Stage 1 burnout — separation confirmed. Stage 2 ignition.');
   const mNow = PH.shipMass(ship);
   // proper-velocity update: du/dt = (F∥ + F⊥/γ)/m + drag/m + γg
@@ -578,7 +658,7 @@ function stepShip(ship, dt, realDtPart) {
   // Flight assist: while you throttle manually, vectored thrust + RCS bleed off sideways drift
   // and cancel the local body's gravity, so the ship travels where the nose points.
   let assistA = 0;
-  if (G_.settings.flightAssist !== false && ship.ap.mode === 'off' && ship.throttle > 0 && !ship.warpOn && beta < 0.05) {
+  if (G_.settings.flightAssist !== false && !ship.booster && ship.ap.mode === 'off' && ship.throttle > 0 && !ship.warpOn && beta < 0.05) {
     const rp = PH.rocketParams(ship);
     if (ship[rp.fuelKey] > 0) {
       const ref = refBody(ship.p, states);
@@ -676,6 +756,13 @@ function stepShip(ship, dt, realDtPart) {
   return { firing: out.F > 0, throttle: ship.throttle, phase: out.phase, pulse: out.pulse, ram: out.ram, sail: out.sail, stage: ship.stage, forge: out.forge };
 }
 
+let sepEvents = [];
+function finishAscent(ship, o) {
+  if (ship.booster) { sepEvents.push(ship.booster.stage === 1 ? 3 : 2); ship.booster = null; }
+  ship.status = 'orbit'; ship.orbiting = LN.PAD_BODY; ship.ap.mode = 'off'; ship.ap.asc = null; ship.throttle = 0;
+  ui.toast(`Orbit achieved: ${(o.ap / 1000).toFixed(0)} × ${(o.pe / 1000).toFixed(0)} km. Booster jettisoned. Your own drive is ready.`, 'good');
+}
+
 function destroyShip(ship, why) {
   ship.status = 'destroyed';
   ship.throttle = 0;
@@ -708,6 +795,7 @@ function completeContract(c, ship) {
   save();
 }
 function onArrived(ship, body) {
+  if (G_.sim) return;
   ship.flags = ship.flags || {};
   for (const c of CONTRACTS) {
     if (c.kind !== 'orbit' || c.target !== body.id) continue;
@@ -720,6 +808,7 @@ function onArrived(ship, body) {
   save();
 }
 function checkContracts(ship) {
+  if (G_.sim) return;
   const beta = PH.len(PH.velOfU(ship.u)) / C;
   G_.records.maxBeta = Math.max(G_.records.maxBeta, beta);
   for (const c of CONTRACTS) {
@@ -741,7 +830,23 @@ function updateCamera(ship, rdt) {
   qShip.fromArray(ship.q);
   const D = cam.dist * cam.zoom;
   const off = new THREE.Vector3(Math.sin(cam.yaw) * Math.cos(cam.pitch), Math.sin(cam.pitch), Math.cos(cam.yaw) * Math.cos(cam.pitch)).multiplyScalar(D);
-  if (cam.mode === 'chase') {
+  // near a planet's surface the horizon should stay level: use the local vertical as "up"
+  let groundUp = null;
+  if (ship.pad && (ship.status === 'landed' || ship.ap.mode === 'ascent')) {
+    const pb = PH.bodyById(ship.pad.body), ps = PH.bodyState(pb, G_.t);
+    const r = PH.sub(ship.p, ps.p);
+    if (PH.len(r) - pb.radius < 120e3) groundUp = new THREE.Vector3(...PH.norm(r));
+  }
+  if (cam.mode === 'chase' && groundUp) {
+    // look at the stack from the side, horizon level, ship nose up
+    const side = new THREE.Vector3(Math.sin(cam.yaw), 0, Math.cos(cam.yaw));
+    side.sub(groundUp.clone().multiplyScalar(side.dot(groundUp))).normalize();
+    const pos = side.multiplyScalar(D * Math.cos(cam.pitch)).add(groundUp.clone().multiplyScalar(D * Math.sin(cam.pitch) + D * 0.15));
+    camera.position.copy(pos);
+    camera.up.copy(groundUp);
+    camera.lookAt(groundUp.clone().multiplyScalar(-D * 0.1));
+    camQ.copy(qShip);
+  } else if (cam.mode === 'chase') {
     camQ.slerp(qShip, Math.min(1, rdt * 3));
     off.applyQuaternion(camQ);
     camera.position.copy(off);
@@ -776,11 +881,18 @@ const ui = new UI({
   activeShip, setAP, setWarp: (i) => setWarp(i), get warpIdx() { return warpIdx; }, WARPS,
   get effWarp() { return G_ ? G_.effWarp : 1; }, get warpLimitedBy() { return warpLimitedBy; },
   get fx() { return lastFx; }, get accel() { return accelNow; },
-  newGame: (name, sandbox = false) => {
-    G_ = freshGame(name, sandbox);
-    const s = sandbox ? PH.newShip('amed', 'probe', 'Sandbox AMED', ['laser', 'missiles', 'solar', 'hab', 'cmd']) : PH.newShip('chem', 'probe', 'Kestrel I', ['science']);
-    G_.fleet.push(s); G_.activeId = s.id; placeAtShipyard(s); combat.clear(); save(); return G_;
+  newGame: (name, mode = 'career') => {
+    if (mode === true) mode = 'sandbox';
+    G_ = freshGame(name, mode);
+    const s = mode === 'sim' ? PH.newShip('ntr', 'probe', 'Pathfinder', ['hab', 'cmd'])
+      : mode === 'sandbox' ? PH.newShip('amed', 'probe', 'Sandbox AMED', ['laser', 'missiles', 'solar', 'hab', 'cmd'])
+      : PH.newShip('chem', 'probe', 'Kestrel I', ['science']);
+    G_.fleet.push(s); G_.activeId = s.id;
+    if (mode === 'sim') LN.placeOnPad(s, G_.t); else placeAtShipyard(s);
+    combat.clear(); save(); return G_;
   },
+  launchPad: () => { const s = activeShip(); if (s) { LN.placeOnPad(s, G_.t); combat.clear(); ui.toast(`${s.name} is on the launch pad with a booster sized to it. Press LAUNCH (or Z).`, 'good'); } },
+  launch: () => { const s = activeShip(); if (s && s.status === 'landed') s.throttle = 1; },
   loadGame: async (mode = 'career') => { G_ = await load(mode); combat.clear(); if (G_) { G_.unlocked = Object.keys(ENGINES); G_.fleet.forEach(s => { s.ap.plan = null; s.ap._vd = null; if (!Array.isArray(s.parts)) s.parts = PH.partsFor(s).slice(); s.config = PH.shipSpec(s).config; }); } return G_; },
   hasSave: async (mode = 'career') => !!(await load(mode)),
   deleteSave: () => storage.del(keyOf(G_)),
@@ -819,6 +931,7 @@ function refill(s) {
 }
 function teleport(s, b) {
   if (!b) return;
+  if (b === 'pad') { LN.placeOnPad(s, G_.t); combat.clear(); ui.toast(`${s.name} is on the launch pad`, 'good'); return; }
   if (b.type === 'station') { placeAtShipyard(s); ui.toast(`${s.name} docked at the shipyard`); return; }
   const st = PH.bodyState(b, G_.t);
   const R = PH.targetArrivalRadius(b) * 1.5;
@@ -864,6 +977,7 @@ function frame(now) {
   ship.fwd = fwdOf(ship);
   updateCamera(ship, rdt);
   updatePrediction(ship, rdt);
+  updateLaunchVisuals(ship, rdt);
   universe.relOptics = G_.settings.relOptics;
   universe.update(ship, G_.t, rdt, camera, sun);
   const cRes = combat.update({
