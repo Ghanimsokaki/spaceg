@@ -289,6 +289,10 @@ body.compact.portrait .throt input { height: 120px; }
 @media (prefers-reduced-motion: reduce) { .stagebtn.ready { animation: none; } }
 .launch:hover, .launch:focus-visible { background: rgba(245,158,11,.32); outline: none; }
 .phaseline { position: absolute; left: 50%; top: 66px; transform: translateX(-50%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 6px; width: min(640px, calc(100% - 640px)); min-width: 360px; }
+.amedbtn { border-color: var(--violet); color: #d6b4ff; background: rgba(168,85,247,.14); }
+.amedbtn.p2 { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,.12); }
+.phaseline .pc { font: inherit; color: inherit; text-align: left; background: transparent; cursor: pointer; }
+.phaseline .pc:hover, .phaseline .pc:focus-visible { border-color: var(--line-hi); outline: none; }
 .phaseline .pc { position: relative; padding: 6px 8px 9px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .phaseline b { display: block; font: 600 10px var(--f-mono); color: var(--dim); white-space: nowrap; }
 .phaseline span { display: block; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -419,11 +423,12 @@ body.compact .phaseline { display: none; }
 
   <button class="launch" id="launchBtn" hidden>LAUNCH</button>
   <button class="launch stagebtn" id="stageBtn" hidden>STAGE <kbd>Space</kbd></button>
+  <button class="launch stagebtn amedbtn" id="amedBtn" hidden>IGNITE ANTIMATTER <kbd>Space</kbd></button>
   <button class="chip padmode" id="padModeBtn" hidden>Ascent guidance: ON</button>
   <div class="phaseline panel" id="phaseline" hidden aria-label="AMED three-phase flight profile">
-    <div class="pc p1" data-ph="1"><b>Phase 1 · 0.00c → 0.15c</b><span>Orion fusion start</span><i></i></div>
-    <div class="pc p2" data-ph="2"><b>Phase 2 · 0.15c → 0.50c+</b><span>Antimatter ram-explosion cruise</span><i></i></div>
-    <div class="pc p3" data-ph="3"><b>Phase 3 · 0.50c → 0.00c</b><span>Magnetic parachute &amp; Orion brake</span><i></i></div>
+    <button class="pc p1" data-ph="1" title="Switch to phase 1"><b>Phase 1 · 0.00c → 0.15c</b><span>Orion fusion start</span><i></i></button>
+    <button class="pc p2" data-ph="2" title="Switch to phase 2"><b>Phase 2 · 0.15c → 0.50c+</b><span>Antimatter ram-explosion cruise</span><i></i></button>
+    <button class="pc p3" data-ph="3" title="Switch to phase 3"><b>Phase 3 · 0.50c → 0.00c</b><span>Magnetic parachute &amp; Orion brake</span><i></i></button>
   </div>
   <section class="weapons panel" id="wpn" hidden aria-label="Weapons">
     <h3>Weapons <em id="wpnTgt">no target</em></h3>

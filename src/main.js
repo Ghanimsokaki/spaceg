@@ -376,8 +376,25 @@ function cycleCamera() {
   ui.toast('Camera: ' + cam.mode);
 }
 function cancelAP(ship, quiet) { if (ship.ap.mode !== 'off') { ship.ap.mode = 'off'; ship.ap.plan = null; if (!quiet) ui.toast('Autopilot off'); } }
+// AMED phase "staging": the pilot clicks the next phase like a stage
+const AMED_TEXT = {
+  P1: 'PHASE 1 · Orion fusion start: D/Li-6 pellets through the iris door, ramscoop off',
+  P2: 'PHASE 2 · Ramscoop open, antimatter armed: hydrogen detonates behind the iris door',
+  P3: 'PHASE 3 · Magnetic parachute deployed (>10,000 km). Below 0.10c, flip and burn pellets',
+};
+function amedSet(ship, md) {
+  if (ship.engine !== 'amed') return;
+  const beta = PH.len(PH.velOfU(ship.u)) / C;
+  if (md === 'P2' && beta < 0.15) { ui.toast(`Phase 2 needs 0.15c — the ram can't light at ${beta.toFixed(3)}c. Keep burning Phase 1 pellets.`, 'warn'); return; }
+  if (ship.ap.mode === 'approach' || ship.ap.mode === 'flyby') { ship.ap.mode = 'off'; ship.ap.plan = null; ui.toast('Autopilot off — you are flying the phases'); }
+  ship.amedMode = md;
+  ui.toast(AMED_TEXT[md], md === 'P2' ? 'good' : '');
+}
+function amedNext(ship) { amedSet(ship, { P1: 'P2', P2: 'P3', P3: 'P1' }[ship.amedMode || 'P1']); }
+
 function stageNow(ship) {
   const E = ENGINES[ship.engine];
+  if (!ship.booster && ship.engine === 'amed' && ship.status !== 'landed') { amedNext(ship); return; }
   if (ship.booster) {
     if (ship.status === 'landed') { ui.toast('Launch first — then stage when a stage burns out'); return; }
     const sep = LN.stageBooster(ship);
@@ -652,8 +669,16 @@ function stepShip(ship, dt, realDtPart) {
   const fwd = fwdOf(ship);
   const dtau = dt / gam;
   const thrBefore = ship.throttle;
+  // AMED: when you fly it, the phase you clicked decides the drive (Phase 1 pellets · Phase 2 ram +
+  // antimatter · Phase 3 magnetic parachute + flip-and-burn). The autopilot runs the phases itself.
+  if (ship.engine === 'amed') {
+    const apFlying = ap.mode === 'approach' || ap.mode === 'flyby';
+    ship._amedAuto = apFlying;
+    if (!apFlying) { const md = ship.amedMode || 'P1'; ship.ram = md === 'P2'; ship.magsail = md === 'P3'; }
+  }
   const bout = ship.booster ? LN.boosterOutput(ship, dtau) : null;
   const out = bout || PH.engineOutput(ship, dtau, beta, vhat, fwd);
+  if (ship.engine === 'amed' && ship._amedAuto && out.phase) ship.amedMode = out.phase === 'P2' ? 'P2' : out.phase.startsWith('P3') ? 'P3' : 'P1';
   if (out.burnout) {
     ui.toast(`Stage ${out.burnout} burnout — press STAGE (Space / G) to separate`, 'warn');
     if (net.role !== 'client' && warpIdx > 0) warpIdx = 0;   // give the pilot time to react
@@ -923,6 +948,8 @@ const ui = new UI({
   flyShip: (id) => { G_.activeId = id; save(); },
   toggleWarpDrive: () => { const s = activeShip(); if (s) toggleWarpDrive(s); },
   stageNow: () => { const s = activeShip(); if (s) stageNow(s); },
+  amedNext: () => { const s = activeShip(); if (s) amedNext(s); },
+  amedSet: (n) => { const s = activeShip(); if (s) amedSet(s, 'P' + n); },
   toggleAutoAscent: () => { G_.settings.autoAscent = G_.settings.autoAscent === false; ui.toast('Ascent guidance ' + (G_.settings.autoAscent ? 'ON — it steers, you stage' : 'OFF — you fly the whole ascent')); },
   cycleCamera, get camMode() { return cam.mode; },
   togglePause: () => { paused = !paused; }, get paused() { return paused; },

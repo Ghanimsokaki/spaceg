@@ -347,11 +347,11 @@ export function engineOutput(ship, dtau, beta, vhat, fwd) {
         ship.fuel2 = Math.max(0, ship.fuel2 - E.ram.amRate * thr * dtau);
         out.ram = true;
         out.phase = 'P2';
-      } else if (thr > 0 && ship.fuel > 0) {
+      } else if (thr > 0 && ship.fuel > 0 && (ship._amedAuto !== false || ship.amedMode !== 'P2')) {
         rocket();
         out.pulse = true;
-        out.phase = (beta > 0.003 && align < -0.3) ? 'P3B' : 'P1';
-      }
+        out.phase = (beta > 0.003 && align < -0.3) || ship.amedMode === 'P3' && ship._amedAuto === false ? 'P3B' : 'P1';
+      } else if (ship._amedAuto === false && ship.amedMode === 'P2') out.phase = 'P2';
       if (out.sail) out.phase = out.F > 0 ? out.phase : 'P3A';
       // pellet forge: harvest deuterium from scooped hydrogen
       if ((out.ram || out.sail) && beta > 0.05) {

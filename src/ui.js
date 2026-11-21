@@ -91,6 +91,8 @@ export class UI {
     $('lockBtn').onclick = () => this.api.cycleLock();
     $('launchBtn').onclick = () => this.api.launch();
     $('stageBtn').onclick = () => this.api.stageNow();
+    $('amedBtn').onclick = () => this.api.amedNext();
+    document.querySelectorAll('#phaseline .pc').forEach(el => el.onclick = () => this.api.amedSet(+el.dataset.ph));
     $('padModeBtn').onclick = () => this.api.toggleAutoAscent();
     $('droneBtn').onclick = () => this.api.spawnDrones(3);
     $('lossBtn').onclick = () => { $('loss').hidden = true; this.toggleHQ(true); };
@@ -373,13 +375,26 @@ export class UI {
       $('stageBtn').firstChild.textContent = bst ? (bst.stage === 1 ? 'STAGE 1 → 2 ' : 'JETTISON BOOSTER ') : 'STAGE 1 → 2 ';
     }
     if (ship.ap.mode === 'ascent') $('apPhase').textContent = ship.ap.ascLabel || 'ASCENT';
+    // AMED phase button: click the next phase like a stage
+    const isAmedFly = ship.engine === 'amed' && !ship.booster && ship.status !== 'landed' && ship.status !== 'docked';
+    $('amedBtn').hidden = !isAmedFly;
+    if (isAmedFly) {
+      const md = ship.amedMode || 'P1';
+      const bnow = PH.len(PH.velOfU(ship.u)) / C;
+      const lab = { P1: 'IGNITE ANTIMATTER · PHASE 2 ', P2: 'DEPLOY PARACHUTE · PHASE 3 ', P3: 'STOW PARACHUTE · PHASE 1 ' }[md];
+      const ready = md === 'P1' ? bnow >= 0.15 : md === 'P2' ? bnow >= 0.5 : bnow < 0.002;
+      $('amedBtn').firstChild.textContent = lab;
+      $('amedBtn').classList.toggle('ready', ready);
+      $('amedBtn').classList.toggle('p2', md === 'P1');
+    }
     // AMED: the dossier's three-phase flight profile
     const isAmed = ship.engine === 'amed';
     $('phaseline').hidden = !isAmed || ship.status === 'landed' || ship.status === 'docked';
     if (isAmed) {
       const P = this.api.fx.phase || '';
       const b = PH.len(PH.velOfU(ship.u)) / C;
-      const cur = P === 'P2' ? 2 : (P === 'P3A' || P === 'P3B') ? 3 : P === 'P1' ? 1 : (b < 0.15 ? 1 : 2);
+      const md = ship.amedMode || 'P1';
+      const cur = md === 'P2' ? 2 : md === 'P3' ? 3 : 1;
       const prog = [Math.min(1, b / 0.15), Math.max(0, Math.min(1, (b - 0.15) / 0.35)), cur === 3 ? Math.max(0, Math.min(1, 1 - b / 0.5)) : 0];
       document.querySelectorAll('#phaseline .pc').forEach((el, i) => { el.classList.toggle('on', cur === i + 1); el.querySelector('i').style.width = (prog[i] * 100) + '%'; });
     }

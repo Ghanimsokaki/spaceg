@@ -27,7 +27,11 @@ Ascent guidance steers the gravity turn for you, toward roughly a 250 km orbit. 
 
 - **Flight assist** (**U**, on by default): while you throttle by hand, the ship goes where the nose points. It bleeds off sideways drift and cancels local gravity. Turn it off for pure orbital mechanics.
 - **Predicted path:** a cyan line shows where you'll coast. It turns red where it hits the surface.
-- **AMED timeline:** AMED ships show the dossier's three-phase flight profile with live progress.
+- **AMED phases are yours to fire:** when you fly an AMED yourself, a phase button works like staging.
+  - **Ignite antimatter · Phase 2** lights up once you pass 0.15c. Clicking it opens the ramscoop and arms the antimatter.
+  - **Deploy parachute · Phase 3** comes next, and the cycle returns to **Phase 1**.
+  - You can also click a card on the dossier timeline, or press **Space** / **G**.
+  - The autopilot runs the phases automatically when it is flying.
 
 ## Multiplayer
 
