@@ -16,6 +16,7 @@ import { UI } from './ui.js';
 import { Combat, starFlux } from './combat.js';
 import { storage } from './storage.js';
 import * as LN from './launch.js';
+import { Net } from './net.js';
 
 // ── renderer & scenes ────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
@@ -366,6 +367,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 window.addEventListener('blur', () => keys.clear());
 
 function setWarp(i) {
+  if (net.role === 'client') { if (!setWarp._told) { setWarp._told = true; ui.toast('In a multiplayer room the host controls time warp'); } return; }
   warpIdx = Math.max(0, Math.min(WARPS.length - 1, i));
 }
 function cycleCamera() {
@@ -897,7 +899,7 @@ const ui = new UI({
   hasSave: async (mode = 'career') => !!(await load(mode)),
   deleteSave: () => storage.del(keyOf(G_)),
   get saveInfo() { return { backend: storage.backend, lastSaved }; },
-  combat,
+  combat, get net() { return net; }, get remoteMarks() { return remoteMarks; }, jumpTo: (id) => jumpTo(id),
   teleport: (id) => { const s = activeShip(); if (s) teleport(s, PH.bodyById(id)); },
   spawnDrones: (n) => { const s = activeShip(); if (s) { s.fwd = fwdOf(s); combat.spawn(s, n); ui.toast(`${n} target drones launched ahead of you`); } },
   cycleLock: () => { const d = combat.cycleLock(); if (d) ui.toast('Target lock: drone ' + d.id); },
@@ -921,6 +923,69 @@ function resize() {
   hangarCam.aspect = w / h; hangarCam.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
+
+// ── multiplayer ──────────────────────────────────────────────────────────────
+const net = new Net({
+  getState: () => {
+    const s = activeShip(); if (!s || !G_) return null;
+    return { t: G_.t, name: s.name, engine: s.engine, parts: PH.partsFor(s), sys: s.sys, p: s.p, u: s.u, q: s.q,
+      thr: s.throttle, ph: lastFx.phase || '', firing: !!lastFx.firing, warp: !!s.warpOn, bst: s.booster ? s.booster.stage : 0, st: s.status };
+  },
+  getTime: () => ({ t: G_ ? G_.t : 0, w: warpIdx }),
+  setTime: (t, w) => {
+    if (!G_) return;
+    warpIdx = w;
+    const dT = t - G_.t;
+    if (Math.abs(dT) <= Math.max(2, WARPS[w] * 0.6)) return;
+    // snap to the host's clock and carry our ship along so it stays where it should be
+    const s = activeShip();
+    if (s && s.status !== 'docked' && s.status !== 'landed' && !s.warpOn) s.p = PH.add(s.p, PH.mul(PH.velOfU(s.u), dT));
+    G_.t = t;
+  },
+  toast: (msg, kind) => ui.toast(msg, kind),
+});
+const remoteGroup = new THREE.Group(); scene.add(remoteGroup);
+const remoteViews = new Map();
+let remoteMarks = [];
+function updateRemotes(me, rdt) {
+  remoteMarks = [];
+  const myG = PH.add(SYS_BY_ID[me.sys].pos, me.p);
+  for (const [id, r] of net.remotes) {
+    const s = r.s; if (!s || !SYS_BY_ID[s.sys]) continue;
+    const key = s.engine + '|' + (s.parts || []).join(',');
+    let rv = remoteViews.get(id);
+    if (!rv || rv.key !== key) {
+      if (rv) remoteGroup.remove(rv.model.root);
+      const model = buildShip(s.engine, PH.specOf(s.engine, s.parts || []).config, s.parts || []);
+      remoteGroup.add(model.root);
+      rv = { model, key }; remoteViews.set(id, rv);
+    }
+    // extrapolate along their velocity to our clock (updates arrive 10×/s, possibly at high warp)
+    const lag = s.warp ? 0 : Math.max(-3600, Math.min(3600, G_.t - (s.t || G_.t)));
+    const pNow = PH.add(s.p, PH.mul(PH.velOfU(s.u), lag));
+    const rel = PH.sub(PH.add(SYS_BY_ID[s.sys].pos, pNow), myG);
+    const d = PH.len(rel);
+    const rd = renderCompress(d), k = d > 0 ? rd / d : 1;
+    const pos = new THREE.Vector3(rel[0] * k, rel[1] * k, rel[2] * k);
+    rv.model.root.position.copy(pos);
+    rv.model.root.scale.setScalar(k);
+    rv.model.root.quaternion.fromArray(s.q);
+    rv.model.root.visible = d < 5e8;
+    const E = ENGINES[s.engine];
+    rv.model.update(rdt, { firing: s.firing, throttle: s.thr, phase: s.ph, pulse: s.firing && (E.pulse || s.ph === 'P1' || s.ph === 'P3B'), ram: s.ph === 'P2' || s.ph === 'RAM', sail: s.ph === 'P3A' || s.ph === 'SAIL', warp: s.warp, stage: 1 });
+    remoteMarks.push({ id, name: r.name, ship: s.name, pos, d });
+  }
+  for (const [id, rv] of remoteViews) if (!net.remotes.has(id)) { remoteGroup.remove(rv.model.root); remoteViews.delete(id); }
+}
+function jumpTo(id) {
+  const r = net.remotes.get(id), me = activeShip();
+  if (!r || !me) return;
+  const s = r.s;
+  const lag = G_.t - (s.t || G_.t);
+  me.sys = s.sys; me.p = PH.add(PH.add(s.p, PH.mul(PH.velOfU(s.u), lag)), [600, 150, 600]); me.u = s.u.slice(); me.status = 'flying'; me.booster = null; me.pad = null;
+  me.ap.mode = 'off'; me.ap.plan = null; me.warpOn = false; me.throttle = 0; combat.clear();
+  ui.toast(`Flying in formation with ${r.name}`, 'good');
+}
 
 let fireButton = false;
 function refill(s) {
@@ -978,6 +1043,7 @@ function frame(now) {
   updateCamera(ship, rdt);
   updatePrediction(ship, rdt);
   updateLaunchVisuals(ship, rdt);
+  updateRemotes(ship, rdt);
   universe.relOptics = G_.settings.relOptics;
   universe.update(ship, G_.t, rdt, camera, sun);
   const cRes = combat.update({
@@ -1047,7 +1113,7 @@ function syncShipCam() {
 }
 
 // debug/testing hook
-window.__sdw = { combat, teleport: (id) => teleport(activeShip(), PH.bodyById(id)), get game() { return G_; }, ui, PH, setWarp, cam, hcam, unlockAll() { G_.unlocked = Object.keys(ENGINES); G_.credits = 1e5; G_.rep = 99; } };
+window.__sdw = { net, combat, teleport: (id) => teleport(activeShip(), PH.bodyById(id)), get game() { return G_; }, ui, PH, setWarp, cam, hcam, unlockAll() { G_.unlocked = Object.keys(ENGINES); G_.credits = 1e5; G_.rep = 99; } };
 
 resize();
 requestAnimationFrame(frame);

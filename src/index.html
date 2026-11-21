@@ -295,6 +295,13 @@ body.compact.portrait .throt input { height: 120px; }
 .phaseline .pc.on span { color: var(--text); }
 @media (max-width: 1100px) { .phaseline { top: 66px; min-width: 0; width: calc(100% - 24px); } .phaseline span { display: none; } }
 body.compact .phaseline { display: none; }
+.blabel.mp { color: #7dff9a; font-weight: 700; }
+.blabel.mp::before { border-radius: 2px; transform: rotate(45deg); }
+.mpind { color: #7dff9a !important; border-color: rgba(125,255,154,.5) !important; }
+.roomcode { font: 800 44px var(--f-mono); letter-spacing: .25em; color: #7dff9a; margin: 6px 0 2px; }
+.mpgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 16px; }
+.mpgrid .row { margin: 0; grid-template-columns: 1fr; }
+@media (max-width: 640px) { .mpgrid { grid-template-columns: 1fr; } }
 #help .box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(720px, calc(100% - 32px)); max-height: calc(100% - 40px); overflow: auto; padding: 22px; }
 #help h2 { margin: 0 0 12px; font-family: var(--f-display); letter-spacing: .14em; text-transform: uppercase; }
 #help .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-size: 13px; }
@@ -427,6 +434,7 @@ body.compact .phaseline { display: none; }
     <button class="chip" id="mapBtn">Map <kbd>M</kbd></button>
     <button class="chip" id="camBtn">Cam <kbd>C</kbd></button>
     <button class="chip" id="helpBtn">Help <kbd>?</kbd></button>
+    <button class="chip mpind" id="mpInd" hidden>● Room</button>
   </div>
   <div class="keys">W/S A/D Q/E steer · Shift/Ctrl throttle · Z full · X cut · , . time warp</div>
 </div>
@@ -472,6 +480,7 @@ body.compact .phaseline { display: none; }
       <button data-tab="rd">R&amp;D</button>
       <button data-tab="contracts">Contracts</button>
       <button data-tab="sandbox" id="sandTab" hidden>Sandbox</button>
+      <button data-tab="mp">Multiplayer</button>
       <button data-tab="settings">Settings</button>
     </nav>
     <div class="tabbody" id="hqBody"></div>

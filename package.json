@@ -9,6 +9,7 @@
     "dev": "node build.mjs --watch"
   },
   "dependencies": {
+    "peerjs": "^1.5.4",
     "three": "0.160.0"
   },
   "devDependencies": {

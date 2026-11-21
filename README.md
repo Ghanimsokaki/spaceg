@@ -6,6 +6,38 @@ Every drive and part is free and unlocked from the start; contracts still pay cr
 
 **Play:** open `index.html` in any modern desktop browser (Chrome, Edge, Firefox, Safari). It is a single self-contained file; no server or internet connection is needed.
 
+## Modes
+
+| Mode | What it is |
+|---|---|
+| **New company** | Career: contracts, credits as your score, start at the orbital shipyard |
+| **Flight simulator** | No company or contracts. Start on a launch pad on Earth and fly anywhere |
+| **Sandbox** | Everything unlocked, plus teleport, invincibility, infinite fuel and drones |
+
+### Launch from Earth
+
+In the Flight simulator (or with Sandbox → *Put on Earth launch pad*), your ship stands on a pad on the rotating Earth, on top of a two-stage booster sized to it. Press **LAUNCH**. Ascent guidance does the rest:
+1. a vertical climb, then a gravity turn
+2. stage 1 separates and stage 2 ignites
+3. an insertion burn into roughly a 250 km orbit, after which the booster is jettisoned
+
+Press **1** at any time to take manual control. There is no atmospheric drag; the sky fades from blue to black as you climb.
+
+### Flying
+
+- **Flight assist** (**U**, on by default): while you throttle by hand, the ship goes where the nose points. It bleeds off sideways drift and cancels local gravity. Turn it off for pure orbital mechanics.
+- **Predicted path:** a cyan line shows where you'll coast. It turns red where it hits the surface.
+- **AMED timeline:** AMED ships show the dossier's three-phase flight profile with live progress.
+
+## Multiplayer
+
+HQ → **Multiplayer**: one player hosts and shares a 5-letter room code, and friends join with it.
+- Everyone sees each other's ships live, and the host's clock and time warp apply to the whole room.
+- **Fly to them** puts you in formation with another pilot.
+- Connections are peer-to-peer (WebRTC via PeerJS). By default they use the free public PeerJS signalling server.
+- To use your own server, run `npx peer --port 9000` and open the game with `?peer=yourhost:9000`.
+- Multiplayer needs the game served from a normal web host (Vercel, local, etc.), because sandboxed embeds can block the signalling connection.
+
 ## Propulsion systems
 
 | Drive | Basis | What it does in the game |
@@ -46,6 +78,8 @@ In HQ → **Shipyard**, pick a drive section, then stack up to 8 modules in fron
 | Cargo pods | +25% pay on repeatable contracts (up to 4) |
 | Dust shield | Raises the safe cruise speed |
 | Radiator array | +8% thrust (up to 3) |
+| Strap-on engine | Half-size copy of your drive: +50% thrust and propellant each (fit 2, 3 or 4) |
+| Warp ring | Alcubierre drive for any ship: up to 1,000c, 20 units of exotic matter |
 | Truss spacer | Structural spacing |
 | Solar array | 4 MW at 1 AU (fades with distance); +20% ion thrust |
 | Fission reactor | 40 MW steady power |

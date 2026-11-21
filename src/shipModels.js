@@ -47,7 +47,7 @@ export function mat(name, rep = [1, 1]) {
     default: m = S({ color: 0xff00ff });
   }
   m.name = name;
-  if (m.isMeshStandardMaterial) m.envMapIntensity = name === 'mirror' ? 1.4 : name === 'gold' || name === 'silverFoil' || name === 'copper' || name === 'lithium' ? 1.1 : 0.7;
+  if (m.isMeshStandardMaterial) m.envMapIntensity = name === 'mirror' ? 1.4 : name === 'gold' || name === 'silverFoil' ? 0.75 : name === 'copper' || name === 'lithium' ? 1.0 : 0.7;
   matCache.set(key, m);
   return m;
 }

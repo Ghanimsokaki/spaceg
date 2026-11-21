@@ -98,6 +98,8 @@ export class UI {
     $('hqTabs').onclick = (e) => { const t = e.target.closest('button'); if (!t) return; this.tab = t.dataset.tab; this.renderHQ(); };
     $('mapc').addEventListener('click', (e) => this._mapClick(e));
     $('hqBody').addEventListener('click', (e) => this._hqClick(e));
+    $('hqBody').addEventListener('input', (e) => { if (e.target.id === 'mpName') this._mpName = e.target.value.trim(); });
+    $('mpInd').onclick = () => { this.tab = 'mp'; this.toggleHQ(true); };
     $('hqBody').addEventListener('input', (e) => { if (e.target.id === 'shipName') this.sel.name = e.target.value; if (e.target.id === 'coRename') { this.api.game.company = e.target.value || 'Stellar Drive Works'; } });
     $('hqBody').addEventListener('change', (e) => this._hqChange(e));
     $('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-id]'); if (!b) return; this.setTarget(b.dataset.id); this.toggleNav(false); });
@@ -350,6 +352,11 @@ export class UI {
     if (E.flybyOnly && ap.mode === 'approach') info = 'Daedalus cannot brake — use Flyby (6)';
     $('apInfo').textContent = info;
 
+    // multiplayer indicator
+    const net = this.api.net;
+    $('mpInd').hidden = !net.online;
+    if (net.online) $('mpInd').textContent = `● ${net.room || '…'} · ${net.remotes.size + 1}`;
+
     // launch pad / ascent
     $('launchBtn').hidden = ship.status !== 'landed';
     if (ship.ap.mode === 'ascent') $('apPhase').textContent = ship.ap.ascLabel || 'ASCENT';
@@ -505,6 +512,9 @@ export class UI {
       put('sys:' + sd.sys.id, sd.sys.name, UI.fmtDist(sd.d), new THREE.Vector3(...sd.dir).multiplyScalar(1e9).add(camera.position), tgt ? 'tgt sys' : 'sys', tgt ? 3 : 1, tgt ? ship.ap.target : b.id);
     }
     for (const [k, el] of this.labelEls) if (!used.has(k)) el.hidden = true;
+
+    // other pilots in the room
+    for (const mk of this.api.remoteMarks || []) put('mp:' + mk.id, '▲ ' + mk.name, UI.fmtDist(mk.d), mk.pos, 'mp', 3, ship.ap.target || '');
 
     // target drones: red brackets with range and hull bar
     const cb = this.api.combat;
@@ -710,6 +720,7 @@ export class UI {
     if (this.tab === 'contracts') body.innerHTML = this._contractsHTML();
     if (this.tab === 'settings') body.innerHTML = this._settingsHTML();
     if (this.tab === 'sandbox') body.innerHTML = this._sandboxHTML();
+    if (this.tab === 'mp') body.innerHTML = this._mpHTML();
     this.updateHQ();
   }
 
@@ -861,6 +872,31 @@ export class UI {
     return h;
   }
 
+  _mpHTML() {
+    const net = this.api.net, g = this.api.game;
+    const name = esc(this._mpName || (g.sim ? 'Pilot' : g.company.split(' ')[0]) || 'Pilot');
+    let h = `<p class="blurb" style="margin-top:0">Fly together in one shared universe. One player hosts and shares the 5-letter room code; everyone sees each other's ships live. The host's clock and time warp apply to the whole room. Works best for 2–8 friends.</p>
+      <label class="field"><span class="lbl">Your pilot name</span><input id="mpName" value="${name}" maxlength="20"></label>`;
+    if (!net.online) {
+      h += `<div class="mpgrid">
+        <div class="row"><div><h5>Host a room</h5><p>Get a room code to share.</p></div><button class="btn" data-act="mphost">Host room</button></div>
+        <div class="row"><div><h5>Join a room</h5><label class="field" style="margin:6px 0"><input id="mpCode" placeholder="ROOM CODE" maxlength="5" style="text-transform:uppercase;letter-spacing:.2em"></label></div><button class="btn amber" data-act="mpjoin">Join room</button></div>
+      </div>`;
+    } else {
+      h += `<div class="row active"><div><span class="lbl">${net.role === 'host' ? 'You are hosting' : 'Connected to'} · ${esc(net.status)}</span>
+        <div class="roomcode">${esc(net.room || '…')}</div><p>${net.role === 'host' ? 'Share this code. Keep this tab open: the room lives in your browser.' : 'The host controls time warp.'}</p></div>
+        <div class="acts">${net.room ? '<button class="btn ghost" data-act="mpcopy">Copy code</button>' : ''}<button class="btn ghost" data-act="mpleave">Leave room</button></div></div>`;
+      h += `<span class="lbl">Pilots in the room · ${net.remotes.size + 1}</span>`;
+      h += `<div class="row"><div><h5>${esc(net.name)} <span class="tag gd">YOU</span></h5></div><div></div></div>`;
+      for (const [id, r] of net.remotes) {
+        const mark = this.api.remoteMarks.find(x => x.id === id);
+        h += `<div class="row"><div><h5>${esc(r.name)}</h5><p>${esc(r.s.name)} · ${esc(ENGINES[r.s.engine].name)}${mark ? ' · ' + UI.fmtDist(mark.d) + ' away' : ''}</p></div><div class="acts"><button class="btn ghost" data-act="mpjump" data-id="${esc(id)}">Fly to them</button></div></div>`;
+      }
+    }
+    h += `<p class="blurb" style="color:var(--muted);font-size:12.5px">Connections are peer-to-peer (WebRTC) and use the free public PeerJS signalling server to find each other. Your game saves stay on your own device.</p>`;
+    return h;
+  }
+
   _modeTabs() {
     const g = this.api.game; if (!g) return;
     document.querySelector('[data-tab=rd]').hidden = !!g.sim;
@@ -990,6 +1026,11 @@ export class UI {
       }
       case 'sbtele': this.api.teleport(actEl.dataset.id); this.toggleHQ(false); return;
       case 'sbpad': this.api.launchPad(); this.toggleHQ(false); return;
+      case 'mphost': this.api.net.host(this._mpName || $('mpName').value.trim() || 'Host'); setTimeout(() => this.renderHQ(), 1500); break;
+      case 'mpjoin': this.api.net.join($('mpCode').value, this._mpName || $('mpName').value.trim() || 'Pilot'); setTimeout(() => this.renderHQ(), 2000); break;
+      case 'mpleave': this.api.net.leave(); break;
+      case 'mpcopy': { const c = this.api.net.room; try { navigator.clipboard.writeText(c).then(() => this.toast('Room code copied'), () => this.toast('Room code: ' + c)); } catch (_) { this.toast('Room code: ' + c); } break; }
+      case 'mpjump': this.api.jumpTo(actEl.dataset.id); this.toggleHQ(false); return;
       case 'sbrefill': { const s = this.api.activeShip(); if (s) { this.api.refill(s); this.toast(`${s.name} refuelled, rearmed and repaired`, 'good'); } break; }
       case 'sbgod': g.settings.invincible = !g.settings.invincible; break;
       case 'sbfuel': g.settings.infiniteFuel = !g.settings.infiniteFuel; break;
